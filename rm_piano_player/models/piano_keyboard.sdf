@@ -1,0 +1,65 @@
+<?xml version="1.0"?>
+<sdf version="1.9">
+  <model name="piano_keyboard">
+    <static>true</static>
+
+    <link name="keyboard_base">
+      <pose>0 0 -0.025 0 0 0</pose>
+      <collision name="collision">
+        <geometry>
+          <box><size>0.21 0.10 0.05</size></box>
+        </geometry>
+      </collision>
+      <visual name="visual">
+        <geometry>
+          <box><size>0.21 0.10 0.05</size></box>
+        </geometry>
+        <material>
+          <ambient>0.08 0.08 0.08 1</ambient>
+          <diffuse>0.12 0.12 0.12 1</diffuse>
+        </material>
+      </visual>
+    </link>
+
+    <link name="key_C4">
+      <pose>-0.08225 0 0.006 0 0 0</pose>
+      <collision name="collision"><geometry><box><size>0.021 0.065 0.012</size></box></geometry></collision>
+      <visual name="visual"><geometry><box><size>0.020 0.064 0.012</size></box></geometry><material><ambient>0.95 0.95 0.95 1</ambient><diffuse>0.95 0.95 0.95 1</diffuse></material></visual>
+    </link>
+    <link name="key_D4">
+      <pose>-0.05875 0 0.006 0 0 0</pose>
+      <collision name="collision"><geometry><box><size>0.021 0.065 0.012</size></box></geometry></collision>
+      <visual name="visual"><geometry><box><size>0.020 0.064 0.012</size></box></geometry><material><ambient>0.95 0.95 0.95 1</ambient><diffuse>0.95 0.95 0.95 1</diffuse></material></visual>
+    </link>
+    <link name="key_E4">
+      <pose>-0.03525 0 0.006 0 0 0</pose>
+      <collision name="collision"><geometry><box><size>0.021 0.065 0.012</size></box></geometry></collision>
+      <visual name="visual"><geometry><box><size>0.020 0.064 0.012</size></box></geometry><material><ambient>0.95 0.95 0.95 1</ambient><diffuse>0.95 0.95 0.95 1</diffuse></material></visual>
+    </link>
+    <link name="key_F4">
+      <pose>-0.01175 0 0.006 0 0 0</pose>
+      <collision name="collision"><geometry><box><size>0.021 0.065 0.012</size></box></geometry></collision>
+      <visual name="visual"><geometry><box><size>0.020 0.064 0.012</size></box></geometry><material><ambient>0.95 0.95 0.95 1</ambient><diffuse>0.95 0.95 0.95 1</diffuse></material></visual>
+    </link>
+    <link name="key_G4">
+      <pose>0.01175 0 0.006 0 0 0</pose>
+      <collision name="collision"><geometry><box><size>0.021 0.065 0.012</size></box></geometry></collision>
+      <visual name="visual"><geometry><box><size>0.020 0.064 0.012</size></box></geometry><material><ambient>0.95 0.95 0.95 1</ambient><diffuse>0.95 0.95 0.95 1</diffuse></material></visual>
+    </link>
+    <link name="key_A4">
+      <pose>0.03525 0 0.006 0 0 0</pose>
+      <collision name="collision"><geometry><box><size>0.021 0.065 0.012</size></box></geometry></collision>
+      <visual name="visual"><geometry><box><size>0.020 0.064 0.012</size></box></geometry><material><ambient>0.95 0.95 0.95 1</ambient><diffuse>0.95 0.95 0.95 1</diffuse></material></visual>
+    </link>
+    <link name="key_B4">
+      <pose>0.05875 0 0.006 0 0 0</pose>
+      <collision name="collision"><geometry><box><size>0.021 0.065 0.012</size></box></geometry></collision>
+      <visual name="visual"><geometry><box><size>0.020 0.064 0.012</size></box></geometry><material><ambient>0.95 0.95 0.95 1</ambient><diffuse>0.95 0.95 0.95 1</diffuse></material></visual>
+    </link>
+    <link name="key_C5">
+      <pose>0.08225 0 0.006 0 0 0</pose>
+      <collision name="collision"><geometry><box><size>0.021 0.065 0.012</size></box></geometry></collision>
+      <visual name="visual"><geometry><box><size>0.020 0.064 0.012</size></box></geometry><material><ambient>0.95 0.95 0.95 1</ambient><diffuse>0.95 0.95 0.95 1</diffuse></material></visual>
+    </link>
+  </model>
+</sdf>
