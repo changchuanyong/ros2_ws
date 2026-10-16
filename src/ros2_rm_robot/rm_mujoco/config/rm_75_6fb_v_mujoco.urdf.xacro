@@ -1,0 +1,49 @@
+<?xml version="1.0"?>
+<robot xmlns:xacro="http://www.ros.org/wiki/xacro" name="rm_75_6fb_v_description">
+  <xacro:arg name="headless" default="false" />
+  <xacro:include filename="$(find rm_description)/urdf/rm_75_6fb_v.urdf" />
+
+  <ros2_control name="MujocoSystem" type="system">
+    <hardware>
+      <plugin>mujoco_ros2_control/MujocoSystemInterface</plugin>
+      <param name="mujoco_model">$(find rm_mujoco)/models/rm_75_6fb_v.xml</param>
+      <param name="sim_speed_factor">1.0</param>
+      <param name="headless">$(arg headless)</param>
+    </hardware>
+    <joint name="joint1">
+      <command_interface name="position" />
+      <state_interface name="position"><param name="initial_value">0.0</param></state_interface>
+      <state_interface name="velocity" />
+    </joint>
+    <joint name="joint2">
+      <command_interface name="position" />
+      <state_interface name="position"><param name="initial_value">0.0</param></state_interface>
+      <state_interface name="velocity" />
+    </joint>
+    <joint name="joint3">
+      <command_interface name="position" />
+      <state_interface name="position"><param name="initial_value">0.0</param></state_interface>
+      <state_interface name="velocity" />
+    </joint>
+    <joint name="joint4">
+      <command_interface name="position" />
+      <state_interface name="position"><param name="initial_value">0.0</param></state_interface>
+      <state_interface name="velocity" />
+    </joint>
+    <joint name="joint5">
+      <command_interface name="position" />
+      <state_interface name="position"><param name="initial_value">0.0</param></state_interface>
+      <state_interface name="velocity" />
+    </joint>
+    <joint name="joint6">
+      <command_interface name="position" />
+      <state_interface name="position"><param name="initial_value">0.0</param></state_interface>
+      <state_interface name="velocity" />
+    </joint>
+    <joint name="joint7">
+      <command_interface name="position" />
+      <state_interface name="position"><param name="initial_value">0.0</param></state_interface>
+      <state_interface name="velocity" />
+    </joint>
+  </ros2_control>
+</robot>
