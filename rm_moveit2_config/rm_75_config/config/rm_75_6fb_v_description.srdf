@@ -1,0 +1,24 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<robot name="rm_75_6fb_v_description">
+    <group name="rm_group">
+        <chain base_link="base_link" tip_link="Link7" />
+    </group>
+    <group_state name="zero" group="rm_group">
+        <joint name="joint1" value="0" />
+        <joint name="joint2" value="0" />
+        <joint name="joint3" value="0" />
+        <joint name="joint4" value="0" />
+        <joint name="joint5" value="0" />
+        <joint name="joint6" value="0" />
+        <joint name="joint7" value="0" />
+    </group_state>
+    <disable_collisions link1="base_link" link2="Link1" reason="Adjacent" />
+    <disable_collisions link1="Link1" link2="Link2" reason="Adjacent" />
+    <disable_collisions link1="Link2" link2="Link3" reason="Adjacent" />
+    <disable_collisions link1="Link3" link2="Link4" reason="Adjacent" />
+    <disable_collisions link1="Link4" link2="Link5" reason="Adjacent" />
+    <disable_collisions link1="Link5" link2="Link6" reason="Adjacent" />
+    <disable_collisions link1="Link6" link2="Link7" reason="Adjacent" />
+    <disable_collisions link1="Link7" link2="camera_rolink" reason="Adjacent" />
+    <disable_collisions link1="camera_rolink" link2="camera_link" reason="Adjacent" />
+</robot>
