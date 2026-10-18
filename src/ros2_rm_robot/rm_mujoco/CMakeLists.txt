@@ -8,4 +8,10 @@ install(
   DESTINATION share/${PROJECT_NAME}
 )
 
+install(
+  PROGRAMS scripts/l20_right_command_bridge.py
+  DESTINATION lib/${PROJECT_NAME}
+  RENAME l20_right_command_bridge.py
+)
+
 ament_package()
