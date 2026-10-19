@@ -8,7 +8,7 @@
 - MoveIt 2 和 RViz 的 `left_arm`、`right_arm`、`dual_arms` 规划组；
 - MuJoCo 中的左右 L20 手控制器，以及双手命令桥接节点。
 
-仓库中没有 L20 的 RS485 真机驱动。下面的 L20 桥接节点用于 MuJoCo 控制器。真机启动文件目前只启动一个 RM75 驱动实例；接入双臂真机前，还需要为左右机械臂分别配置两个驱动实例和网络参数。
+真机目标同样是双臂。仓库中没有 L20 的 RS485 真机驱动，下面的 L20 桥接节点用于 MuJoCo 控制器。当前真机启动文件只启动一个 RM75 驱动和一个控制节点，因此还不能直接作为双臂真机启动入口。
 
 ## 功能包
 
@@ -68,16 +68,16 @@ ros2 launch rm_mujoco rm_75_dual_l20_mujoco.launch.py use_rviz:=false
 
 MuJoCo 模型中包含左右两只 L20 手。MoveIt 使用的双臂 URDF 当前只包含两条机械臂，不包含 L20 的 link，因此 RViz 显示和规划的是双臂，手部通过桥接节点单独控制。
 
-## 真机入口
+## 真机状态
 
-当前保留的 RM75-6FB-V 真机入口为：
+当前保留的 RM75-6FB-V 真机入口是单臂入口：
 
 ```bash
 source ~/ros2_ws/install/setup.bash
 ros2 launch rm_bringup rm_75_6fb_v_bringup.launch.py
 ```
 
-使用真机前，请检查 `rm_driver/config/rm_75_config.yaml` 中的机械臂 IP，确认目标机械臂，并先在仿真环境测试启动流程。该入口目前只配置一台机械臂，增加两个驱动实例和独立网络参数前，不要将其用于双臂真机。
+使用真机前，请检查 `rm_driver/config/rm_75_config.yaml` 中的机械臂 IP，确认目标机械臂，并先在仿真环境测试启动流程。要实现双臂真机，还需要增加两个独立网络参数的驱动实例、两个控制命名空间，以及双臂真机 MoveIt 控制器配置。当前入口不能直接用于双臂真机。
 
 ## 验证
 

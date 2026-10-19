@@ -8,7 +8,7 @@ The current target path is:
 - MoveIt 2 and RViz planning for the `left_arm`, `right_arm`, and `dual_arms` groups;
 - two L20 hand controllers in MuJoCo, driven by the dual hand command bridge.
 
-The repository does not contain an L20 RS485 hardware driver. The L20 bridge described below is for the MuJoCo controllers. The real-arm bringup file still starts one RM75 driver instance; a physical dual-arm setup needs two driver instances with separate robot network settings before it can be used on hardware.
+The intended real-hardware configuration is also dual-arm. The repository does not contain an L20 RS485 hardware driver, and the L20 bridge described below is for the MuJoCo controllers. The current real-arm bringup file starts one RM75 driver and one control node, so it is not yet a dual-arm hardware launch.
 
 ## Packages
 
@@ -68,16 +68,16 @@ Both topics use `sensor_msgs/msg/JointState`. Each message must contain at least
 
 The MuJoCo model contains the two L20 hands. The arm-only dual URDF used by MoveIt does not yet contain L20 links, so RViz plans and displays the two arms while the hands are controlled through the bridge.
 
-## Real-arm entry point
+## Real-arm status
 
-The remaining RM75-6FB-V hardware entry is:
+The remaining RM75-6FB-V hardware entry is a single-arm entry point:
 
 ```bash
 source ~/ros2_ws/install/setup.bash
 ros2 launch rm_bringup rm_75_6fb_v_bringup.launch.py
 ```
 
-Before using hardware, check the arm IP address in `rm_driver/config/rm_75_config.yaml`, confirm the target arm, and test the launch in simulation first. This entry currently configures one arm. Do not use it as a dual-arm hardware launch until two driver instances and independent network parameters have been added.
+Before using hardware, check the arm IP address in `rm_driver/config/rm_75_config.yaml`, confirm the target arm, and test the launch in simulation first. To support the intended dual-arm hardware setup, add two driver instances with independent network parameters, two control namespaces, and a dual-arm hardware MoveIt controller configuration. Do not use the current entry as a dual-arm hardware launch.
 
 ## Validation
 
