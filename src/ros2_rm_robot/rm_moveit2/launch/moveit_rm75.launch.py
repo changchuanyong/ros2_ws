@@ -8,9 +8,14 @@ from launch_ros.parameter_descriptions import ParameterValue
 
 
 def generate_launch_description():
-    moveit_config = MoveItConfigsBuilder(
-        "rm_75_description", package_name="rm_75_config"
-    ).to_moveit_configs()
+    moveit_config = (
+        MoveItConfigsBuilder(
+            "rm_75_6fb_v_description", package_name="rm_75_config"
+        )
+        .robot_description(file_path="config/rm_75_6fb_v_description.urdf.xacro")
+        .robot_description_semantic(file_path="config/rm_75_6fb_v_description.srdf")
+        .to_moveit_configs()
+    )
 
     return LaunchDescription(
         [
