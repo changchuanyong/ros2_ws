@@ -54,6 +54,16 @@ ament_target_dependencies(rm_driver rclcpp std_msgs sensor_msgs rm_ros_interface
 install(TARGETS  rm_driver  DESTINATION lib/${PROJECT_NAME})
 install(FILES ${RM_API_LIBRARY} DESTINATION lib)
 
-install(DIRECTORY launch config
-  DESTINATION share/${PROJECT_NAME})
+install(
+  DIRECTORY launch
+  DESTINATION share/${PROJECT_NAME}
+  FILES_MATCHING
+  PATTERN "rm_75_driver.launch.py"
+)
+install(
+  DIRECTORY config
+  DESTINATION share/${PROJECT_NAME}
+  FILES_MATCHING
+  PATTERN "rm_75_config.yaml"
+)
 ament_package()

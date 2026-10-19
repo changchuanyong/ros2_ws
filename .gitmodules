@@ -1,6 +1,0 @@
-[submodule "src/linkerhand-ros2-sdk"]
-	path = src/linkerhand-ros2-sdk
-	url = https://github.com/linker-bot/linkerhand-ros2-sdk.git
-[submodule "src/linkerhand-sim"]
-	path = src/linkerhand-sim
-	url = https://github.com/linker-bot/linkerhand-sim.git

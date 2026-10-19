@@ -22,8 +22,26 @@ find_package(ament_cmake REQUIRED)
 # find_package(<dependency> REQUIRED)
 
 install(
-  DIRECTORY launch urdf meshes rviz
+  FILES
+    urdf/rm_75_6fb_v.urdf
+    urdf/rm_75_6fb_v_dual.urdf.xacro
+  DESTINATION share/${PROJECT_NAME}/urdf
+)
+install(
+  DIRECTORY meshes/rm_75_6fb_v
+  DESTINATION share/${PROJECT_NAME}/meshes
+)
+install(
+  DIRECTORY launch
   DESTINATION share/${PROJECT_NAME}
+  FILES_MATCHING
+  PATTERN "rm_75_6fb_v_display.launch.py"
+)
+install(
+  DIRECTORY rviz
+  DESTINATION share/${PROJECT_NAME}
+  FILES_MATCHING
+  PATTERN "rm_75.rviz"
 )
 
 install(

@@ -1,0 +1,60 @@
+<?xml version="1.0"?>
+<robot xmlns:xacro="http://www.ros.org/wiki/xacro" name="rm_75_6fb_v_dual_l20_mujoco_control">
+  <xacro:arg name="headless" default="false" />
+
+  <ros2_control name="MujocoSystem" type="system">
+    <hardware>
+      <plugin>mujoco_ros2_control/MujocoSystemInterface</plugin>
+      <param name="mujoco_model">$(find rm_mujoco)/models/rm_75_6fb_v_dual_l20.xml</param>
+      <param name="sim_speed_factor">1.0</param>
+      <param name="headless">$(arg headless)</param>
+    </hardware>
+
+    <xacro:macro name="position_joint" params="joint_name">
+      <joint name="${joint_name}">
+        <command_interface name="position" />
+        <state_interface name="position"><param name="initial_value">0.0</param></state_interface>
+        <state_interface name="velocity" />
+      </joint>
+    </xacro:macro>
+
+    <xacro:macro name="arm_joints" params="prefix">
+      <xacro:position_joint joint_name="${prefix}_joint1" />
+      <xacro:position_joint joint_name="${prefix}_joint2" />
+      <xacro:position_joint joint_name="${prefix}_joint3" />
+      <xacro:position_joint joint_name="${prefix}_joint4" />
+      <xacro:position_joint joint_name="${prefix}_joint5" />
+      <xacro:position_joint joint_name="${prefix}_joint6" />
+      <xacro:position_joint joint_name="${prefix}_joint7" />
+    </xacro:macro>
+
+    <xacro:macro name="hand_joints" params="prefix">
+      <xacro:position_joint joint_name="${prefix}_thumb_joint0" />
+      <xacro:position_joint joint_name="${prefix}_thumb_joint1" />
+      <xacro:position_joint joint_name="${prefix}_thumb_joint2" />
+      <xacro:position_joint joint_name="${prefix}_thumb_joint3" />
+      <xacro:position_joint joint_name="${prefix}_thumb_joint4" />
+      <xacro:position_joint joint_name="${prefix}_index_joint0" />
+      <xacro:position_joint joint_name="${prefix}_index_joint1" />
+      <xacro:position_joint joint_name="${prefix}_index_joint2" />
+      <xacro:position_joint joint_name="${prefix}_index_joint3" />
+      <xacro:position_joint joint_name="${prefix}_middle_joint0" />
+      <xacro:position_joint joint_name="${prefix}_middle_joint1" />
+      <xacro:position_joint joint_name="${prefix}_middle_joint2" />
+      <xacro:position_joint joint_name="${prefix}_middle_joint3" />
+      <xacro:position_joint joint_name="${prefix}_ring_joint0" />
+      <xacro:position_joint joint_name="${prefix}_ring_joint1" />
+      <xacro:position_joint joint_name="${prefix}_ring_joint2" />
+      <xacro:position_joint joint_name="${prefix}_ring_joint3" />
+      <xacro:position_joint joint_name="${prefix}_little_joint0" />
+      <xacro:position_joint joint_name="${prefix}_little_joint1" />
+      <xacro:position_joint joint_name="${prefix}_little_joint2" />
+      <xacro:position_joint joint_name="${prefix}_little_joint3" />
+    </xacro:macro>
+
+    <xacro:arm_joints prefix="left" />
+    <xacro:arm_joints prefix="right" />
+    <xacro:hand_joints prefix="left" />
+    <xacro:hand_joints prefix="right" />
+  </ros2_control>
+</robot>

@@ -37,6 +37,8 @@ include_directories(
 install(
   DIRECTORY launch
   DESTINATION share/${PROJECT_NAME}
+  FILES_MATCHING
+  PATTERN "rm_75_control.launch.py"
 )
 
 if(BUILD_TESTING)

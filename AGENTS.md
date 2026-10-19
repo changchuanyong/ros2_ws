@@ -4,10 +4,8 @@
 
 本仓库是 ROS 2 工作空间，所有功能包源码放在 `src/` 下：
 
-- `src/ros2_rm_robot/`：RealMan 机械臂驱动、接口、模型描述、MoveIt、Gazebo、MuJoCo、示例和启动文件。
-- `src/linkerhand-ros2-sdk/`：Python 版 LinkerHand SDK、ROS 功能包、GUI 工具和硬件示例。
-- `src/linkerhand-sim/`：LinkerHand 的 MuJoCo、PyBullet 和 Isaac Gym 仿真。
-- 共享模型与资源包括 URDF/xacro、网格、YAML 配置、启动文件和 RM75–L20 STEP 模型。
+- `src/ros2_rm_robot/`：当前工作目标为 RM75-6FB-V 双臂、MoveIt/RViz、MuJoCo 和 L20 双手控制。
+- 其他型号源码仍保留在上游目录中，但通过 `COLCON_IGNORE` 或安装过滤不进入当前构建；L20 MuJoCo 资源由 `rm_mujoco` 自带。
 
 ## 构建、测试与运行
 
@@ -21,11 +19,11 @@ colcon test
 colcon test-result --verbose
 ```
 
-使用 `ros2 launch rm_bringup rm_75_gazebo.launch.py` 启动集成机械臂仿真；使用 `ros2 launch rm_mujoco rm_75_6fb_v_l20_right_mujoco.launch.py` 启动 RM75-6FB-V MuJoCo 模型。修改 LinkerHand Python 代码后，应先在 `src/linkerhand-ros2-sdk/` 执行 `ruff check`，再构建。
+使用 `ros2 launch rm_mujoco rm_75_dual_l20_mujoco.launch.py` 启动 RM75-6FB-V 双臂双 L20 MuJoCo、MoveIt 和 RViz；Gazebo 已从当前构建路径排除。
 
 ## 编码风格与命名
 
-遵循现有 C++ `rclcpp` 和 Python `rclpy` 风格。Python 使用四个空格缩进，C++ 使用项目已有格式；Python 标识符采用 `snake_case`，功能包和节点使用清晰名称。ROS 启动文件必须使用 `*.launch.py` 后缀，功能包名称使用小写下划线格式，并保留既有的 `rm_*` 与 `linker_hand_*` 前缀。URDF/xacro、YAML 和双语注释应与相邻文件保持一致，不要格式化无关代码。
+遵循现有 C++ `rclcpp` 和 Python `rclpy` 风格。Python 使用四个空格缩进，C++ 使用项目已有格式；Python 标识符采用 `snake_case`，功能包和节点使用清晰名称。ROS 启动文件必须使用 `*.launch.py` 后缀，功能包名称使用小写下划线格式，并保留既有的 `rm_*` 前缀。URDF/xacro、YAML 和双语注释应与相邻文件保持一致，不要格式化无关代码。
 
 ## 测试规范
 
@@ -37,4 +35,4 @@ Python 测试放在各功能包的 `test/` 目录中，并使用 `test_*.py` 命
 
 ## 安全与配置
 
-启动真机前检查 `rm_driver/config` 中的 IP 设置，并确认目标机械臂与配置地址一致。启用 LinkerHand 硬件前确认 CAN 接口名称。启动文件应先在仿真环境中测试；机械臂工作范围内不得有人；提交改动时保留已有未提交内容。
+启动真机前检查 `rm_driver/config` 中的 IP 设置，并确认目标机械臂与配置地址一致。启动文件应先在仿真环境中测试；机械臂工作范围内不得有人；L20 仿真使用 `rm_mujoco` 内置模型；提交改动时保留已有未提交内容。

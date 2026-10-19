@@ -36,8 +36,11 @@ install(DIRECTORY include/
   DESTINATION include
 )
 
-install(DIRECTORY launch
+install(
+  DIRECTORY launch
   DESTINATION share/${PROJECT_NAME}
+  FILES_MATCHING
+  PATTERN "moveit_rm75.launch.py"
 )
 
 ament_package()
