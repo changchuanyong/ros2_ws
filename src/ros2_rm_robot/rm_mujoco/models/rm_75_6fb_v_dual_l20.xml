@@ -11,6 +11,9 @@
     <material name="silver" rgba="0.75 0.75 0.75 1" />
     <material name="camera" rgba="0.79 0.82 0.93 1" />
     <material name="floor" rgba="0.18 0.20 0.23 1" />
+    <material name="piano_case" rgba="0.08 0.08 0.09 1" />
+    <material name="piano_white" rgba="0.95 0.95 0.92 1" />
+    <material name="piano_black" rgba="0.03 0.03 0.03 1" />
     <mesh name="base_link" file="rm_75_6fb_v/base_link.STL" />
     <mesh name="link_1" file="rm_75_6fb_v/link_1.STL" />
     <mesh name="link_2" file="rm_75_6fb_v/link_2.STL" />
@@ -52,6 +55,7 @@
   <worldbody>
     <light name="key" pos="1.5 -1.5 2.5" dir="-1 1 -2" directional="true" />
     <geom name="floor" type="plane" size="3 3 0.1" material="floor" />
+    <include file="piano_keyboard.xml" />
     <body name="left_base_link" pos="0 -0.075 0.5" euler="3.14159265 1.5707963 1.5707963">
       <inertial pos="0.00049987 0.000052709 0.060019" mass="1.862" diaginertia="0.0017232 0.0017051 0.00090158" />
       <geom name="left_base_link_visual" type="mesh" mesh="base_link" material="white" contype="0" conaffinity="0" />

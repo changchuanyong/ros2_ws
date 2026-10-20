@@ -2,7 +2,7 @@
 <package format="3">
   <name>rm_piano_player</name>
   <version>0.1.0</version>
-  <description>RM75-6FB MoveIt piano playing task demo.</description>
+  <description>RM75 dual-arm MIDI piano player with dual L20 hand control.</description>
 
   <maintainer email="dianjinglab@todo.todo">dianjinglab</maintainer>
   <license>Apache-2.0</license>
@@ -13,9 +13,12 @@
   <depend>moveit_msgs</depend>
   <depend>moveit_ros_planning_interface</depend>
   <depend>rclcpp</depend>
+  <depend>sensor_msgs</depend>
+  <depend>std_msgs</depend>
 
   <exec_depend>launch</exec_depend>
   <exec_depend>launch_ros</exec_depend>
+  <exec_depend>ament_index_python</exec_depend>
 
   <export>
     <build_type>ament_cmake</build_type>

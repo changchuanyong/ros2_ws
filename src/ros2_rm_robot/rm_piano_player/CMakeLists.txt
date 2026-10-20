@@ -13,8 +13,11 @@ find_package(geometry_msgs REQUIRED)
 find_package(moveit_msgs REQUIRED)
 find_package(moveit_ros_planning_interface REQUIRED)
 find_package(rclcpp REQUIRED)
+find_package(sensor_msgs REQUIRED)
+find_package(std_msgs REQUIRED)
 
 add_executable(piano_player src/piano_player.cpp)
+add_executable(piano_midi_player src/piano_midi_player.cpp)
 
 ament_target_dependencies(
   piano_player
@@ -24,8 +27,24 @@ ament_target_dependencies(
   rclcpp
 )
 
+ament_target_dependencies(
+  piano_midi_player
+  geometry_msgs
+  moveit_msgs
+  moveit_ros_planning_interface
+  rclcpp
+  sensor_msgs
+  std_msgs
+)
+
 install(TARGETS
   piano_player
+  piano_midi_player
+  DESTINATION lib/${PROJECT_NAME}
+)
+
+install(PROGRAMS
+  src/midi_feedback_monitor.py
   DESTINATION lib/${PROJECT_NAME}
 )
 

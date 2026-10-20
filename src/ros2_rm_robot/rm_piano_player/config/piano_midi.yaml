@@ -1,0 +1,34 @@
+piano_midi_player:
+  ros__parameters:
+    midi_file: ""
+    piano_frame: piano_frame
+    left_planning_group: left_arm
+    right_planning_group: right_arm
+    execute: false
+    feedback_enabled: false
+    tempo_scale: 2.0
+    feedback_tolerance_sec: 0.15
+    keyboard_note_min: 21
+    keyboard_note_max: 108
+    left_max_note: 59
+    key_x_start: 0.30
+    key_x_step: 0.014
+    key_y: 0.0
+    black_key_y: 0.012
+    key_z: 0.312
+    approach_height: 0.04
+    press_depth: 0.008
+    orientation_xyzw: [0.0, 0.0, 0.0, 1.0]
+    velocity_scaling: 0.10
+    acceleration_scaling: 0.10
+    planning_time: 5.0
+    return_home: false
+    hand_open: [0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
+                0, 0, 0, 0, 0, 0, 0, 0, 0, 0]
+    hand_press_value: 180.0
+
+midi_feedback_monitor:
+  ros__parameters:
+    enabled: false
+    midi_input: ""
+    tolerance_sec: 0.15

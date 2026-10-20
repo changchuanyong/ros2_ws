@@ -16,7 +16,9 @@ install(
 )
 
 install(
-  FILES models/rm_75_6fb_v_dual_l20.xml
+  FILES
+    models/rm_75_6fb_v_dual_l20.xml
+    models/piano_keyboard.xml
   DESTINATION share/${PROJECT_NAME}/models
 )
 

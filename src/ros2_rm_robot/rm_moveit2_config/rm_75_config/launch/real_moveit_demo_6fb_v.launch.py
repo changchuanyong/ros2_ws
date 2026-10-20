@@ -1,3 +1,6 @@
+import os
+
+from ament_index_python.packages import get_package_share_directory
 from moveit_configs_utils import MoveItConfigsBuilder
 from moveit_configs_utils.launches import generate_moveit_rviz_launch
 
@@ -6,6 +9,7 @@ from launch.actions import (
     DeclareLaunchArgument,
     IncludeLaunchDescription,
 )
+from launch.conditions import IfCondition
 from moveit_configs_utils.launch_utils import (
     add_debuggable_node,
     DeclareBooleanLaunchArg,
@@ -15,15 +19,34 @@ from launch_ros.parameter_descriptions import ParameterValue
 
 
 def generate_launch_description():
-    # moveit_config = MoveItConfigsBuilder("rm_75_6fb_v_description", package_name="rm_75_config").to_moveit_configs() 
+    description_path = os.path.join(
+        get_package_share_directory("rm_description"),
+        "urdf",
+        "rm_75_6fb_v_dual.urdf.xacro",
+    )
     moveit_config = (
-        MoveItConfigsBuilder("rm_75_6fb_v_description", package_name="rm_75_config")
-        .robot_description(file_path="config/rm_75_6fb_v_description.urdf.xacro")
-        .robot_description_semantic(file_path="config/rm_75_6fb_v_description.srdf")
+        MoveItConfigsBuilder("rm_75_6fb_v_dual", package_name="rm_75_config")
+        .robot_description(
+            file_path=description_path,
+            mappings={
+                "left_xyz": "0 -0.075 0.5",
+                "left_rpy": "3.14 1.57 1.5707963267949",
+                "right_xyz": "0 0.075 0.5",
+                "right_rpy": "3.14 1.57 -1.5707963267949",
+            },
+        )
+        .robot_description_semantic(file_path="config/rm_75_6fb_v_dual_description.srdf")
+        .robot_description_kinematics(file_path="config/kinematics_dual.yaml")
+        .trajectory_execution(
+            file_path="config/moveit_controllers_dual.yaml",
+            moveit_manage_controllers=False,
+        )
+        .joint_limits(file_path="config/joint_limits_dual.yaml")
         .to_moveit_configs()
     )
     
     ld = LaunchDescription()
+    ld.add_action(DeclareBooleanLaunchArg("use_rviz", default_value=True))
 
     # 启动move_group
     my_generate_move_group_launch(ld, moveit_config)
@@ -122,6 +145,7 @@ def my_generate_moveit_rviz_launch(ld, moveit_config):
         respawn=False,
         arguments=["-d", LaunchConfiguration("rviz_config")],
         parameters=rviz_parameters,
+        condition=IfCondition(LaunchConfiguration("use_rviz")),
     )
 
     return ld
