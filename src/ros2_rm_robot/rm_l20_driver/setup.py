@@ -13,6 +13,7 @@ setup(
         ("share/ament_index/resource_index/packages", ["resource/" + package_name]),
         ("share/" + package_name, ["package.xml", "LICENSE", "THIRD_PARTY.md", "README.md"]),
         ("share/" + package_name + "/launch", glob("launch/*.launch.py")),
+        ("share/" + package_name + "/config", glob("config/*.yaml")),
     ],
     install_requires=["setuptools", "pymodbus==3.5.1", "pyserial==3.5", "numpy>=1.21,<2"],
     zip_safe=False,
@@ -22,6 +23,10 @@ setup(
     license="Apache-2.0",
     tests_require=["pytest"],
     entry_points={
-        "console_scripts": ["l20_rs485_driver = rm_l20_driver.node:main"],
+        "console_scripts": [
+            "l20_rs485_driver = rm_l20_driver.node:main",
+            "l20_dual_rs485_driver = rm_l20_driver.dual_node:main",
+            "l20_wait_ready = rm_l20_driver.wait_ready:main",
+        ],
     },
 )

@@ -2,11 +2,18 @@ import os
 
 from ament_index_python.packages import get_package_share_directory
 from launch import LaunchDescription
-from launch.actions import DeclareLaunchArgument, IncludeLaunchDescription, TimerAction
+from launch.actions import (
+    DeclareLaunchArgument, IncludeLaunchDescription, RegisterEventHandler, TimerAction,
+)
+from launch.event_handlers import OnProcessExit
 from launch.launch_description_sources import PythonLaunchDescriptionSource
 from launch.substitutions import LaunchConfiguration
 from launch_ros.actions import Node
 from launch_ros.parameter_descriptions import ParameterValue
+
+from rm_l20_driver.launch_support import (
+    gated_hand_nodes, hand_arguments, hand_exit, readiness_exit,
+)
 
 
 def generate_launch_description():
@@ -26,28 +33,7 @@ def generate_launch_description():
             "use_rviz": LaunchConfiguration("use_rviz"),
         }.items(),
     )
-    left_hand = Node(
-        package="rm_l20_driver",
-        executable="l20_rs485_driver",
-        name="left_l20_driver",
-        output="screen",
-        parameters=[{
-            "hand_type": "left",
-            "hand_joint": LaunchConfiguration("hand_joint"),
-            "modbus": LaunchConfiguration("left_hand_port"),
-        }],
-    )
-    right_hand = Node(
-        package="rm_l20_driver",
-        executable="l20_rs485_driver",
-        name="right_l20_driver",
-        output="screen",
-        parameters=[{
-            "hand_type": "right",
-            "hand_joint": LaunchConfiguration("hand_joint"),
-            "modbus": LaunchConfiguration("right_hand_port"),
-        }],
-    )
+    hands, wait_ready = gated_hand_nodes()
     player = Node(
         package="rm_piano_player",
         executable="piano_midi_player",
@@ -89,16 +75,13 @@ def generate_launch_description():
         ],
     )
 
-    return LaunchDescription([
+    return LaunchDescription(hand_arguments() + [
         DeclareLaunchArgument("left_arm_ip", default_value="192.168.1.18"),
         DeclareLaunchArgument("right_arm_ip", default_value="192.168.1.19"),
         DeclareLaunchArgument("left_udp_ip", default_value="192.168.1.10"),
         DeclareLaunchArgument("right_udp_ip", default_value="192.168.1.10"),
         DeclareLaunchArgument("left_udp_port", default_value="8089"),
         DeclareLaunchArgument("right_udp_port", default_value="8090"),
-        DeclareLaunchArgument("left_hand_port", default_value="/dev/ttyUSB0"),
-        DeclareLaunchArgument("right_hand_port", default_value="/dev/ttyUSB1"),
-        DeclareLaunchArgument("hand_joint", default_value="L20-11"),
         DeclareLaunchArgument("midi_file", default_value=""),
         DeclareLaunchArgument("midi_input", default_value=""),
         DeclareLaunchArgument("execute", default_value="false"),
@@ -106,8 +89,10 @@ def generate_launch_description():
         DeclareLaunchArgument("tempo_scale", default_value="4.0"),
         DeclareLaunchArgument("feedback_tolerance_sec", default_value="0.15"),
         DeclareLaunchArgument("use_rviz", default_value="true"),
-        bringup,
-        left_hand,
-        right_hand,
-        TimerAction(period=8.0, actions=[feedback, player]),
+        RegisterEventHandler(OnProcessExit(target_action=hands, on_exit=hand_exit)),
+        RegisterEventHandler(OnProcessExit(
+            target_action=wait_ready,
+            on_exit=readiness_exit([bringup, TimerAction(period=8.0, actions=[feedback, player])]))),
+        hands,
+        wait_ready,
     ])

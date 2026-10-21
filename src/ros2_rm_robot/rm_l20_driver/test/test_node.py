@@ -36,6 +36,9 @@ class FakeHand:
             raise self.write_error
         self.commands.append(list(values))
 
+    def read_uid_registers(self):
+        return [ord('T') | ord('E') << 8, ord('S') | ord('T') << 8] + [0] * 9
+
     def get_state(self):
         self.reads += 1
         if self.read_error:
@@ -60,10 +63,12 @@ def make_node(monkeypatch):
     monkeypatch.setenv('ROS_LOCALHOST_ONLY', '1')
     context = Context()
     rclpy.init(context=context)
-    monkeypatch.setattr(driver, 'LinkerHandL20RS485', FakeHand)
+    monkeypatch.setattr(driver, 'open_hand', lambda port, baudrate, slave_id: FakeHand(
+        modbus_port=port, baudrate=baudrate, hand_id=slave_id))
     nodes = []
 
     def create(**params):
+        params.setdefault('expected_uid', 'TEST')
         node = driver.L20RS485Driver(
             context=context,
             parameter_overrides=[Parameter(key, value=value) for key, value in params.items()])
@@ -87,7 +92,7 @@ def test_topics_connection_and_no_startup_motion(make_node, side, port):
     assert node.state_publisher.topic_name == f'/cb_{side}_hand_state'
     assert hand.connection == {'hand_id': 7, 'modbus_port': port, 'baudrate': 115200}
     assert hand.commands == []
-    assert hand.reads == 0
+    assert hand.reads == 1
     assert node._timer.timer_period_ns == 50_000_000
 
 
@@ -102,11 +107,12 @@ def test_both_rs485_model_names(make_node, model):
     {'hand_type': 'both'}, {'hand_joint': 'L20'}, {'modbus': ''},
     {'baudrate': 0}, {'slave_id': 0}, {'slave_id': 248},
     {'poll_rate': 0.0}, {'poll_rate': math.nan}, {'poll_rate': 101.0},
+    {'expected_uid': ''}, {'expected_uid': ' '},
 ])
 def test_bad_parameters_rejected_before_serial_open(make_node, monkeypatch, params):
-    def forbidden_open(**kwargs):
+    def forbidden_open(*args, **kwargs):
         pytest.fail('invalid parameters opened a serial connection')
-    monkeypatch.setattr(driver, 'LinkerHandL20RS485', forbidden_open)
+    monkeypatch.setattr(driver, 'open_hand', forbidden_open)
     with pytest.raises(ValueError):
         make_node(**params)
 
@@ -117,6 +123,16 @@ def test_raw_position_command_preserves_sdk_order(make_node):
     pose[0], pose[-1] = 0.0, 255.0
     node.command_callback(JointState(position=pose))
     assert hand.commands == [pose]
+
+
+def test_wrong_uid_closes_before_state_or_commands(make_node, monkeypatch):
+    hand = FakeHand()
+    monkeypatch.setattr(driver, 'open_hand', lambda *args: hand)
+    node, _, _, _ = make_node(expected_uid='OTHER')
+    node.command_callback(JointState(position=[0.0] * 20))
+    assert node._faulted and hand.close_count == 1
+    assert node.command_subscription is None
+    assert hand.reads == 0 and hand.commands == []
 
 
 @pytest.mark.parametrize('pose', [
@@ -221,9 +237,9 @@ def test_close_error_does_not_skip_abort_or_resume_commands(make_node):
 
 
 def test_connect_failure_stays_faulted(make_node, monkeypatch):
-    def failed_open(**kwargs):
+    def failed_open(*args, **kwargs):
         raise ConnectionError('no serial adapter')
-    monkeypatch.setattr(driver, 'LinkerHandL20RS485', failed_open)
+    monkeypatch.setattr(driver, 'open_hand', failed_open)
     node, hand, states, _ = make_node()
     assert hand is None
     assert node._faulted

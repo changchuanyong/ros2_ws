@@ -39,7 +39,7 @@ ros2 launch rm_piano_player rm_75_dual_l20_piano_mujoco.launch.py \
 
 ## 双臂双手真机
 
-真机入口启动本仓库 `rm_l20_driver` 的两个 `l20_rs485_driver` 节点，默认 `hand_joint=L20-11`，只保留 L20 RS485 通信；仿真入口仍使用原有命令桥。仅查看参数、无需连接硬件时使用：
+真机入口先启动本仓库 `rm_l20_driver` 的 `l20_dual_rs485_driver`，按完整 UID 自动识别左右手，默认 `hand_joint=L20-11`。两只手均通过 UID 和首帧状态检查后才启动双臂，再等待原有 8 秒启动播放器；10 秒未就绪或双手进程退出则终止启动。仿真入口仍使用原有命令桥。仅查看参数、无需连接硬件时使用：
 
 ```bash
 ros2 launch rm_piano_player rm_75_dual_l20_piano_real.launch.py --show-args
@@ -51,7 +51,7 @@ ros2 launch rm_piano_player rm_75_dual_l20_piano_real.launch.py --show-args
 ros2 launch rm_piano_player rm_75_dual_l20_piano_real.launch.py \
   midi_file:=/absolute/path/song.mid \
   left_arm_ip:=192.168.1.18 right_arm_ip:=192.168.1.19 \
-  left_hand_port:=/dev/ttyUSB0 right_hand_port:=/dev/ttyUSB1 \
+  left_hand_port:=auto right_hand_port:=auto \
   hand_joint:=L20-11 execute:=false
 ```
 
@@ -68,12 +68,14 @@ ros2 launch rm_piano_player rm_75_dual_l20_piano_real.launch.py \
 - `config/piano_midi.yaml` 保存琴键坐标、`piano_frame`、按压深度、速度和 L20 开手姿态。
 - `piano_frame` 已加入双臂 URDF；琴键坐标必须根据实际钢琴位置重新标定。
 - L20 命令话题使用 20 个 `position` 值，范围 `0–255`。
+- `rm_l20_driver/config/hand_identity.yaml` 保存左右手完整 UID；两处真机入口共用，使用 `hand_identity_config:=<绝对路径>` 覆盖。首次运动前核对实物标签，替换机械手时更新配置。手动指定串口也不能绕过 UID 校验。
+- `/l20/hands_ready` 表示双手共同就绪。任一手通信故障后，两侧均拒绝后续命令并关闭串口，须排查后重新启动，不自动重连。
 - 真机左右手命令话题为 `/cb_left_hand_control_cmd`、`/cb_right_hand_control_cmd`，状态话题为 `/cb_left_hand_state`、`/cb_right_hand_state`，均使用 `sensor_msgs/msg/JointState`。
 - MIDI 反馈状态发布在 `/robopianist/feedback_status`，包含期望音符、实际音符和 `time_error_sec`。
 - 默认 `execute=false`，先完成 MuJoCo 干运行和单键验证，再接触真机。
 - 当前 MuJoCo 场景包含 88 键几何模型，但尚未实现 RoboPianist 的琴键接触奖励和力反馈。
 
-真机按以下顺序验收：左手 `/dev/ttyUSB0` 单独通信 → 右手 `/dev/ttyUSB1` 单独通信 → 检查 `/cb_left_hand_state` 和 `/cb_right_hand_state` → 双臂单键接近 → 双手单音阶 → 低速 MIDI 曲目 → 开启 MIDI 反馈。出现漏键、错键或超时后，播放器会停止后续动作；机械臂工作范围内不得有人，并保留急停可达。
+真机按以下顺序验收：仅启动双手入口并核对完整 UID、实物左右标签 → 停止驱动后交换插入顺序并重新启动，确认归属不变 → 缺手启动被拒绝 → 检查 `/cb_left_hand_state` 和 `/cb_right_hand_state` → 双臂单键接近 → 双手单音阶 → 低速 MIDI 曲目 → 开启 MIDI 反馈。出现漏键、错键或超时后，播放器会停止后续动作；机械臂工作范围内不得有人，并保留急停可达。
 
 ## Jetson 验证记录（2026-10-21）
 

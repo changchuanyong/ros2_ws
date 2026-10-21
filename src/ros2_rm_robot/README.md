@@ -84,14 +84,14 @@ ros2 launch rm_piano_player rm_75_dual_l20_piano_mujoco.launch.py \
   midi_file:=/absolute/path/song.mid headless:=true use_rviz:=false execute:=false
 ```
 
-The real entry defaults to left arm `192.168.1.18`, right arm `192.168.1.19`, left hand `/dev/ttyUSB0`, right hand `/dev/ttyUSB1`, and the hand parameter `L20-11`:
+The real entry defaults to left arm `192.168.1.18`, right arm `192.168.1.19`, and hand model `L20-11`. Hand serial ports are discovered by the exact UIDs in `rm_l20_driver/config/hand_identity.yaml`:
 
 ```bash
 ros2 launch rm_piano_player rm_75_dual_l20_piano_real.launch.py \
   midi_file:=/absolute/path/song.mid execute:=false
 ```
 
-This entry uses the in-repository `rm_l20_driver/l20_rs485_driver`. `execute=false` only disables player actions; the launch still connects to the arms and hand serial ports. To inspect arguments without starting hardware nodes, use `ros2 launch rm_piano_player rm_75_dual_l20_piano_real.launch.py --show-args`.
+This entry uses the in-repository `rm_l20_driver/l20_dual_rs485_driver`. Both hand identities and first state reads must pass before the arms start; a ten-second readiness timeout or hand-process exit shuts down the launch. `execute=false` only disables player actions; the launch still connects to hand serial ports and, after readiness, to the arms. To inspect arguments without starting hardware nodes, use `ros2 launch rm_piano_player rm_75_dual_l20_piano_real.launch.py --show-args`.
 
 Set `midi_input:=<port-name>` and `feedback_enabled:=true` to check missing notes, unexpected notes, and timing timeouts. `tempo_scale` is a time multiplier, so larger values slow playback. This is a RoboPianist-style hardware behavior reproduction; the original Shadow Hand RL policy and key-contact reward are outside the first phase.
 
@@ -114,7 +114,7 @@ ros2 launch rm_bringup rm_75_6fb_v_bringup.launch.py \
   left_udp_port:=<left-udp-port> right_udp_port:=<right-udp-port>
 ```
 
-The launch isolates the two driver/control stacks in the `left_arm` and `right_arm` namespaces and merges their joint states to `/joint_states` for the dual-arm URDF, MoveIt, and RViz. This arm-only entry does not start the hands. Use the piano hardware entry above to also start the in-repository L20 RS485 drivers on `/dev/ttyUSB0` and `/dev/ttyUSB1`.
+The launch isolates the two driver/control stacks in the `left_arm` and `right_arm` namespaces and merges their joint states to `/joint_states` for the dual-arm URDF, MoveIt, and RViz. This arm-only entry does not start the hands. Use the piano hardware entry above to bind the in-repository L20 RS485 drivers by exact UID, independently of `ttyUSB` numbering.
 
 Before using hardware, build on Ubuntu/ROS 2 Humble and verify both arm IP addresses, UDP feedback addresses, and ports. The original nine packages passed a Jetson build and basic dependency checks; physical motion has not been tested. Validation of this L20 driver integration will be recorded separately. Existing simulation and test evidence is documented in `rm_piano_player/README_CN.md`.
 

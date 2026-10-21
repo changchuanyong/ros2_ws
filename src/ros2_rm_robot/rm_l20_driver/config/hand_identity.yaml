@@ -1,0 +1,5 @@
+l20_dual_rs485_driver:
+  ros__parameters:
+    # Initial L/R assignment must be checked against the physical labels before motion.
+    left_hand_uid: LHT20-011-260-L-B-1-D
+    right_hand_uid: LHT20-011-266-R-B-1-D

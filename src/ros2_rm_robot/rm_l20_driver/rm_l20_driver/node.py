@@ -9,7 +9,8 @@ from rclpy.qos import DurabilityPolicy, QoSProfile, ReliabilityPolicy
 from sensor_msgs.msg import JointState
 from std_msgs.msg import Bool
 
-from rm_l20_driver.protocol import KEYS, LinkerHandL20RS485
+from rm_l20_driver.discovery import open_hand, read_verified_uid, validate_uid
+from rm_l20_driver.protocol import KEYS
 
 
 def validate_positions(values):
@@ -35,17 +36,23 @@ def validate_feedback(values):
 class L20RS485Driver(Node):
     """Serialize hand commands and fresh feedback on a single ROS executor."""
 
-    def __init__(self, **kwargs):
+    def __init__(self, *, connected_hand=None, verified_uid=None,
+                 command_gate=lambda: True, fault_callback=None,
+                 node_name='l20_rs485_driver', **kwargs):
         """Open the serial connection without sending an initial hand pose."""
-        super().__init__('l20_rs485_driver', **kwargs)
+        super().__init__(node_name, **kwargs)
         self._hand = None
         self._faulted = False
+        self._commands_enabled = False
+        self._command_gate = command_gate
+        self._fault_callback = fault_callback
         self._timer = None
         self._abort_timer = None
         try:
             self.declare_parameter('hand_type', 'left')
             self.declare_parameter('hand_joint', 'L20-11')
             self.declare_parameter('modbus', '/dev/ttyUSB0')
+            self.declare_parameter('expected_uid', '')
             self.declare_parameter('baudrate', 115200)
             self.declare_parameter('slave_id', 1)
             self.declare_parameter('poll_rate', 20.0)
@@ -53,6 +60,8 @@ class L20RS485Driver(Node):
             self.hand_type = self.get_parameter('hand_type').value
             hand_joint = self.get_parameter('hand_joint').value
             port = self.get_parameter('modbus').value
+            expected_uid = self.get_parameter('expected_uid').value
+            validate_uid(expected_uid)
             baudrate = self.get_parameter('baudrate').value
             slave_id = self.get_parameter('slave_id').value
             poll_rate = self.get_parameter('poll_rate').value
@@ -74,9 +83,7 @@ class L20RS485Driver(Node):
 
         self.state_publisher = self.create_publisher(
             JointState, f'/cb_{self.hand_type}_hand_state', 10)
-        self.command_subscription = self.create_subscription(
-            JointState, f'/cb_{self.hand_type}_hand_control_cmd',
-            self.command_callback, 10)
+        self.command_subscription = None
         self.abort_publisher = self.create_publisher(
             Bool, '/robopianist/feedback_abort',
             QoSProfile(
@@ -84,19 +91,37 @@ class L20RS485Driver(Node):
                 durability=DurabilityPolicy.TRANSIENT_LOCAL))
         self._timer = self.create_timer(1.0 / poll_rate, self.poll_state)
         try:
-            self._hand = LinkerHandL20RS485(
-                hand_id=slave_id, modbus_port=port, baudrate=baudrate)
+            self._hand = connected_hand if connected_hand is not None else open_hand(
+                port, baudrate, slave_id)
+            uid = verified_uid if connected_hand is not None else read_verified_uid(self._hand)
+            if uid != expected_uid:
+                raise ValueError(f'expected UID {expected_uid}, got {uid}')
+            self.poll_state()
+            if not self._faulted and connected_hand is None:
+                self.enable_commands()
         except Exception as error:
             self._enter_fault(f'cannot connect to {port}: {error}')
         else:
-            self.get_logger().info(
-                f'{self.hand_type} {hand_joint} RS485 connected: '
-                f'{port}, baudrate={baudrate}, slave_id={slave_id}; '
-                'waiting for explicit position commands')
+            if not self._faulted:
+                self.get_logger().info(
+                    f'{self.hand_type} {hand_joint} RS485 connected: '
+                    f'{port}, UID={expected_uid}, baudrate={baudrate}, slave_id={slave_id}; '
+                    'waiting for explicit position commands')
+
+    def enable_commands(self):
+        """Subscribe only after readiness, so startup commands cannot queue for later."""
+        if self._faulted or self._hand is None or not self._command_gate():
+            return
+        if self.command_subscription is None:
+            self.command_subscription = self.create_subscription(
+                JointState, f'/cb_{self.hand_type}_hand_control_cmd',
+                self.command_callback, 10)
+        self._commands_enabled = True
 
     def command_callback(self, message):
         """Forward only valid position commands; never recover a fault silently."""
-        if self._faulted or self._hand is None:
+        if (self._faulted or self._hand is None or not self._commands_enabled or
+                not self._command_gate()):
             return
         try:
             positions = validate_positions(message.position)
@@ -139,6 +164,9 @@ class L20RS485Driver(Node):
         if self._faulted:
             return
         self._faulted = True
+        self._commands_enabled = False
+        if self._fault_callback is not None:
+            self._fault_callback(reason)
         if self._timer is not None:
             self._timer.cancel()
         self.get_logger().error(
@@ -153,6 +181,7 @@ class L20RS485Driver(Node):
 
     def destroy_node(self):
         """Release serial resources without sending an opening or closing pose."""
+        self._commands_enabled = False
         if self._timer is not None:
             self._timer.cancel()
             self._timer = None

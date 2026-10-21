@@ -22,6 +22,7 @@ L20 灵巧手 Modbus RTU (RS485) 控制类。
     ROOT2 / ROOT3 全部以及四指 ROLL 均为预留占位，写入无效、读出不反映真实状态。
 """
 import math
+import sys
 import time
 from typing import Dict, List, Optional, Sequence, Union
 
@@ -34,11 +35,66 @@ except ImportError:  # pragma: no cover - 老版本 pymodbus 兜底
     ModbusException = Exception
 
 
+class _ExclusiveSerialClient(ModbusSerialClient):
+    """Release kernel exclusivity even when pymodbus closes on a bad response."""
+
+    def __init__(self, **kwargs):
+        self._locked = False
+        self._closed = False
+        super().__init__(**kwargs)
+
+    def connect(self):
+        if self._closed:
+            return False  # Never silently reopen an identity-verified connection.
+        if not sys.platform.startswith('linux'):
+            raise RuntimeError('exclusive hardware access requires Linux')
+        connected = super().connect()
+        if connected and not self._locked:
+            import fcntl
+            import termios
+            try:
+                self.socket.exclusive = True
+                fcntl.ioctl(self.socket.fileno(), termios.TIOCEXCL)
+                self._locked = True
+            except BaseException:
+                self.close()
+                raise
+        return connected
+
+    def close(self):
+        try:
+            if self._locked and self.socket is not None:
+                import fcntl
+                import termios
+                try:
+                    fcntl.ioctl(self.socket.fileno(), termios.TIOCNXCL)
+                except OSError:
+                    pass  # An unplugged USB device still needs close().
+        finally:
+            self._locked = False
+            self._closed = True
+            super().close()
+
+
 # --------------------------------------------------------------------------
 # 通信默认参数 (说明书 2.3 通信参数)
 # --------------------------------------------------------------------------
 DEFAULT_BAUDRATE = 115200
 DEFAULT_SLAVE_ID = 0x01          # 说明书默认 Slave ID = 1
+
+
+def decode_uid(registers: Sequence[int]) -> str:
+    """Decode the 11 UID words; characters within each word are low-byte first."""
+    if len(registers) != 11 or any(
+            not isinstance(value, int) or isinstance(value, bool) or
+            not 0 <= value <= 65535 for value in registers):
+        raise ValueError('UID must contain 11 uint16 registers')
+    raw = b''.join(value.to_bytes(2, 'little') for value in registers)
+    # Only trailing padding is allowed; an embedded NUL must not hide a suffix.
+    text = raw.rstrip(b'\x00').decode('ascii')
+    if not text or not all(33 <= ord(char) <= 126 for char in text):
+        raise ValueError('UID must be nonempty printable ASCII without spaces')
+    return text
 
 # 连续请求之间的间隔 (说明书 2.5: 间隔视返回帧所携带数据量大小而定)。
 # 普通帧响应最长 65 字节 (读 30 个寄存器)，3 ms 足够；
@@ -214,7 +270,8 @@ class LinkerHandL20RS485:
                  timeout: float = 0.05,
                  retries: int = 3,
                  interval: float = _INTERVAL,
-                 matrix_interval: float = _MATRIX_INTERVAL):
+                 matrix_interval: float = _MATRIX_INTERVAL,
+                 exclusive: bool = False):
         """
         :param hand_id:     Modbus 从站地址，L20 出厂默认 1，有效范围 1~247
         :param modbus_port: 串口设备名
@@ -240,13 +297,14 @@ class LinkerHandL20RS485:
             timeout=timeout,
             retries=retries,
         )
+        client_type = _ExclusiveSerialClient if exclusive else ModbusSerialClient
         try:
             # pymodbus 3.5.x 支持这两个参数，更高版本已移除
-            self.cli = ModbusSerialClient(
-                retry_on_empty=True, handle_local_echo=False, **client_kwargs
+            self.cli = client_type(
+                retry_on_empty=retries > 0, handle_local_echo=False, **client_kwargs
             )
         except TypeError:
-            self.cli = ModbusSerialClient(**client_kwargs)
+            self.cli = client_type(**client_kwargs)
 
         self.connected = False
         try:
@@ -257,6 +315,7 @@ class LinkerHandL20RS485:
                 )
         except Exception:
             self.cli.close()
+            self.connected = False
             raise
 
         # 矩阵传感器当前选择的缓存，避免每帧都重复下发尺寸配置
@@ -735,16 +794,10 @@ class LinkerHandL20RS485:
             regs = self.read_uid_registers()
         except Exception:
             return []
-        chars = []
-        for reg in regs:
-            chars.append((reg >> 8) & 0xFF)
-            chars.append(reg & 0xFF)
-        text = bytes(chars).split(b"\x00")[0]
         try:
-            decoded = text.decode("ascii").strip()
-        except UnicodeDecodeError:
+            return decode_uid(regs)
+        except (ValueError, UnicodeDecodeError):
             return regs
-        return decoded if decoded.isprintable() and decoded else regs
 
     def get_state(self) -> List[int]:
         """当前关节位置，返回 20 元素 SDK 向量。"""

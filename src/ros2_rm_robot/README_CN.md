@@ -84,14 +84,14 @@ ros2 launch rm_piano_player rm_75_dual_l20_piano_mujoco.launch.py \
   midi_file:=/absolute/path/song.mid headless:=true use_rviz:=false execute:=false
 ```
 
-真机入口默认使用左臂 `192.168.1.18`、右臂 `192.168.1.19`，左手 `/dev/ttyUSB0`、右手 `/dev/ttyUSB1`，L20 参数为 `L20-11`：
+真机入口默认使用左臂 `192.168.1.18`、右臂 `192.168.1.19`，双手串口按 `rm_l20_driver/config/hand_identity.yaml` 中的完整 UID 自动识别，L20 参数为 `L20-11`：
 
 ```bash
 ros2 launch rm_piano_player rm_75_dual_l20_piano_real.launch.py \
   midi_file:=/absolute/path/song.mid execute:=false
 ```
 
-真机入口使用本仓库 `rm_l20_driver/l20_rs485_driver`。`execute=false` 只禁用播放器动作，启动时仍会连接机械臂和手部串口；仅离线查看参数请使用 `ros2 launch rm_piano_player rm_75_dual_l20_piano_real.launch.py --show-args`。
+真机入口使用本仓库 `rm_l20_driver/l20_dual_rs485_driver`，双手身份与首帧状态均通过后才启动双臂；10 秒未就绪或双手进程退出会终止启动。`execute=false` 只禁用播放器动作，启动时仍会连接手部串口，并在就绪后连接机械臂；仅离线查看参数请使用 `ros2 launch rm_piano_player rm_75_dual_l20_piano_real.launch.py --show-args`。
 
 数字钢琴 MIDI 输入端口通过 `midi_input:=<port-name>` 指定，`feedback_enabled:=true` 后会检查漏键、错键和超时；`tempo_scale` 是时间倍率，数值越大播放越慢。当前方案是 RoboPianist 风格的硬件行为复现，尚未直接迁移 Shadow Hand RL 策略，也尚未加入琴键接触奖励和力反馈。
 
@@ -114,7 +114,7 @@ ros2 launch rm_bringup rm_75_6fb_v_bringup.launch.py \
   left_udp_port:=<左臂UDP端口> right_udp_port:=<右臂UDP端口>
 ```
 
-启动流程使用 `left_arm` 和 `right_arm` 命名空间隔离两套 driver/control，并将两路 `joint_states` 合并到 `/joint_states` 供双臂 URDF、MoveIt 和 RViz 使用。此双臂入口不启动手部；双臂双手请使用上面的钢琴真机入口，它会启动仓内 L20 RS485 驱动，分别连接 `/dev/ttyUSB0` 和 `/dev/ttyUSB1`。
+启动流程使用 `left_arm` 和 `right_arm` 命名空间隔离两套 driver/control，并将两路 `joint_states` 合并到 `/joint_states` 供双臂 URDF、MoveIt 和 RViz 使用。此双臂入口不启动手部；双臂双手请使用上面的钢琴真机入口，它按完整 UID 将仓内 L20 RS485 驱动绑定到对应串口，不依赖 `ttyUSB` 编号。
 
 使用真机前，请先在 Ubuntu/ROS 2 Humble 上编译并检查两台机械臂的 IP、UDP 回传地址和端口。原有 9 个包已在 Jetson 完成编译和基础依赖检查，尚未进行真机运动验证；本次 L20 驱动移植的验证结果另行记录。既有仿真和测试记录见 `rm_piano_player/README_CN.md`。
 

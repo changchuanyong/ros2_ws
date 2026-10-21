@@ -25,6 +25,10 @@ Local adaptations:
 - Reject empty, erroneous, and incomplete Modbus responses, and requests after close.
 - Add a ROS 2 node for position commands and state feedback, with communication
   failure handling and tests using fake clients.
+- Decode UID characters low-byte first within each register, verified against two
+  real read-only replies; keep ordinary numeric-register byte order unchanged.
+- Add exact-UID discovery, retained exclusive serial connections, and shared
+  dual-hand readiness and fault handling without automatic reconnection.
 
 The external SDK's package loader, CAN drivers, other hand models and GUI
 are not part of this package. The ROS node does not expose calibration,
