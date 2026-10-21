@@ -1,0 +1,25 @@
+{
+  "active_controllers": [
+    "right_arm_controller",
+    "right_l20_hand_controller",
+    "left_arm_controller",
+    "left_l20_hand_controller",
+    "joint_state_broadcaster"
+  ],
+  "joint_count": 58,
+  "initial_max_error_rad": 3.88611078766532e-06,
+  "clock_range": [
+    0.002,
+    9.809999999
+  ],
+  "moveit_valid": true,
+  "contacts": [],
+  "trajectory_results": {
+    "left_arm_controller": 0,
+    "left_l20_hand_controller": 0,
+    "right_arm_controller": 0,
+    "right_l20_hand_controller": 0
+  },
+  "midi_dry_run": true,
+  "launch_exit_code": 0
+}

@@ -23,6 +23,8 @@
 #include <std_msgs/msg/bool.hpp>
 #include <std_msgs/msg/string.hpp>
 
+#include "key_positions.hpp"
+
 namespace
 {
 
@@ -301,6 +303,7 @@ public:
     key_y_ = parameter(node_, "key_y", 0.0);
     black_key_y_ = parameter(node_, "black_key_y", 0.012);
     key_z_ = parameter(node_, "key_z", 0.312);
+    key_positions_ = parameter(node_, "key_positions", std::vector<double>{});
     approach_height_ = parameter(node_, "approach_height", 0.04);
     press_depth_ = parameter(node_, "press_depth", 0.008);
     orientation_xyzw_ = parameter(node_, "orientation_xyzw", std::vector<double>{0, 0, 0, 1});
@@ -314,11 +317,14 @@ public:
     if (orientation_xyzw_.size() != 4 || hand_open_.size() != 20) {
       throw std::runtime_error("orientation_xyzw must have 4 values and hand_open must have 20 values");
     }
-    if (tempo_scale_ <= 0.0 || key_x_step_ <= 0.0 || left_max_note_ < keyboard_note_min_ ||
+    if (tempo_scale_ <= 0.0 || (key_positions_.empty() && key_x_step_ <= 0.0) ||
+      left_max_note_ < keyboard_note_min_ ||
       left_max_note_ >= keyboard_note_max_ || keyboard_note_min_ < 0 || keyboard_note_max_ > 127)
     {
       throw std::runtime_error("Invalid MIDI piano timing or keyboard range parameters");
     }
+    rm_piano_player::validateKeyPositions(
+      key_positions_, keyboard_note_min_, keyboard_note_max_);
 
     left_hand_pub_ = node_->create_publisher<sensor_msgs::msg::JointState>(
       "/cb_left_hand_control_cmd", 10);
@@ -465,9 +471,13 @@ private:
   geometry_msgs::msg::Pose keyPose(int note, double z_offset) const
   {
     geometry_msgs::msg::Pose pose;
-    pose.position.x = key_x_start_ + static_cast<double>(note - keyboard_note_min_) * key_x_step_;
-    pose.position.y = isBlackKey(note) ? black_key_y_ : key_y_;
-    pose.position.z = key_z_ + z_offset;
+    const auto position = rm_piano_player::keyPosition(
+      key_positions_, note, keyboard_note_min_,
+      {key_x_start_ + static_cast<double>(note - keyboard_note_min_) * key_x_step_,
+        isBlackKey(note) ? black_key_y_ : key_y_, key_z_}, z_offset);
+    pose.position.x = position[0];
+    pose.position.y = position[1];
+    pose.position.z = position[2];
     pose.orientation.x = orientation_xyzw_[0];
     pose.orientation.y = orientation_xyzw_[1];
     pose.orientation.z = orientation_xyzw_[2];
@@ -619,6 +629,7 @@ private:
   double hand_press_value_{180.0};
   std::vector<double> orientation_xyzw_;
   std::vector<double> hand_open_;
+  std::vector<double> key_positions_;
   std::shared_ptr<MoveGroupInterface> left_group_;
   std::shared_ptr<MoveGroupInterface> right_group_;
   rclcpp::Publisher<sensor_msgs::msg::JointState>::SharedPtr left_hand_pub_;

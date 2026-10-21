@@ -45,6 +45,11 @@ The MuJoCo launch requires the external `mujoco_ros2_control` package, MoveIt 2,
 
 ## Launch the dual-arm MuJoCo simulation
 
+The default scene places two upright RM75 arms on a wooden table facing an 88-key
+digital piano, with both L20 hands hovering downward. The approximate dimensions,
+initial joint positions, and cameras are configured in `rm_mujoco/config/piano_scene.yaml`.
+See [the scene guide](rm_mujoco/README.md) for layout overrides and offscreen previews.
+
 ```bash
 source ~/ros2_ws/install/setup.bash
 ros2 launch rm_mujoco rm_75_dual_l20_mujoco.launch.py

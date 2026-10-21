@@ -1,0 +1,10 @@
+# Simulation overlay. Key coordinates come from rm_mujoco/config/piano_scene.yaml.
+# These approximate dimensions do not replace real piano calibration.
+piano_midi_player:
+  ros__parameters:
+    piano_frame: piano_frame
+    execute: false
+    feedback_enabled: false
+    approach_height: 0.04
+    press_depth: 0.008
+    orientation_xyzw: [1.0, 0.0, 0.0, 0.0]

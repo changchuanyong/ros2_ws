@@ -57,6 +57,8 @@ install(FILES README_CN.md
 )
 
 if(BUILD_TESTING)
+  add_executable(test_key_positions test/test_key_positions.cpp)
+  add_test(NAME test_key_positions COMMAND test_key_positions)
   find_package(ament_cmake_pytest REQUIRED)
   ament_add_pytest_test(test_midi_feedback_monitor
     test/test_midi_feedback_monitor.py

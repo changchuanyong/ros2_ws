@@ -19,6 +19,12 @@ source install/setup.bash
 
 ## MuJoCo 双臂双手播放
 
+仿真入口使用桌面双臂钢琴场景，从 `rm_mujoco/config/piano_scene.yaml` 生成真实
+黑白键排列对应的 88 个位置，并加载 `config/piano_midi_sim.yaml` 覆盖仿真参数。
+`scene_config:=/absolute/path/piano_scene.yaml` 可同时调整场景与键位；真机入口
+仍使用原 `piano_midi.yaml`。生成的键位是琴键表面坐标，当前播放器目标仍为机械臂
+工具端，实际指尖按键需进一步标定，不能将场景预览当成完整演奏验证。
+
 先使用干运行检查 MIDI 文件、左右分配和坐标：
 
 ```bash

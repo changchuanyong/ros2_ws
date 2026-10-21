@@ -45,6 +45,10 @@ MuJoCo 启动依赖外部的 `mujoco_ros2_control`，以及 MoveIt 2、RViz 2、
 
 ## 启动双臂双手 MuJoCo
 
+默认场景为木桌上直立安装的双 RM75、向下悬停的双 L20，以及木色 88 键电钢琴。
+布局尺寸、初始姿态和相机由 `rm_mujoco/config/piano_scene.yaml` 配置；这些是照片
+近似值，实机仍需测量标定。调整方法与离屏截图命令见 [场景说明](rm_mujoco/README.md)。
+
 ```bash
 source ~/ros2_ws/install/setup.bash
 ros2 launch rm_mujoco rm_75_dual_l20_mujoco.launch.py

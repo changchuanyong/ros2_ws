@@ -1,0 +1,51 @@
+# Photo-derived approximation in metres, not a measured hardware calibration.
+# World axes: x = low to high notes, y = from robots toward piano, z = up.
+table:
+  position: [0.0, -0.58, 0.725]
+  size: [1.75, 0.80, 0.05]
+bases:
+  left:
+    position: [-0.32, -0.28, 0.76]
+    rpy: [0.0, 0.0, 0.0]
+  right:
+    position: [0.32, -0.28, 0.76]
+    rpy: [0.0, 0.0, 0.0]
+initial_positions:
+  left_joint1: 1.325341
+  left_joint2: 0.622539
+  left_joint3: 0.547901
+  left_joint4: 0.890657
+  left_joint5: -0.311080
+  left_joint6: 1.695042
+  left_joint7: -1.395839
+  right_joint1: -1.361125
+  right_joint2: -0.350157
+  right_joint3: -0.311396
+  right_joint4: -1.267188
+  right_joint5: 0.105340
+  right_joint6: -1.540001
+  right_joint7: -1.657978
+piano_frame:
+  position: [0.0, 0.0, 0.74]
+keyboard:
+  white_pitch: 0.0236
+  white_depth: 0.15
+  white_thickness: 0.012
+  black_width: 0.0135
+  black_depth: 0.085
+  black_height: 0.012
+  gap: 0.0006
+piano:
+  width: 1.40
+  depth: 0.44
+background:
+  enabled: true
+cameras:
+  overview:
+    position: [1.90, -2.45, 1.85]
+    target: [0.0, -0.05, 0.88]
+    fovy: 43.0
+  front:
+    position: [0.0, -3.2, 1.9]
+    target: [0.0, -0.12, 0.95]
+    fovy: 45.0

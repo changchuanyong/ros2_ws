@@ -4,12 +4,13 @@
   <xacro:arg name="left_rpy" default="3.14159265 1.5707963 1.5707963" />
   <xacro:arg name="right_xyz" default="0 0.075 0.5" />
   <xacro:arg name="right_rpy" default="3.14159265 1.5707963 -1.5707963" />
+  <xacro:arg name="piano_xyz" default="0 0 0" />
 
   <link name="base_root" />
   <!-- Keyboard calibration frame. Key coordinates in rm_piano_player are expressed here. -->
   <link name="piano_frame" />
   <joint name="piano_frame_fixed" type="fixed">
-    <origin xyz="0 0 0" rpy="0 0 0" />
+    <origin xyz="$(arg piano_xyz)" rpy="0 0 0" />
     <parent link="base_root" />
     <child link="piano_frame" />
   </joint>

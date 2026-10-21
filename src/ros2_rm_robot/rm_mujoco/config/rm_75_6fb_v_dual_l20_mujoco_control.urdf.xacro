@@ -1,19 +1,24 @@
 <?xml version="1.0"?>
 <robot xmlns:xacro="http://www.ros.org/wiki/xacro" name="rm_75_6fb_v_dual_l20_mujoco_control">
   <xacro:arg name="headless" default="false" />
+  <xacro:arg name="mujoco_model" default="$(find rm_mujoco)/models/rm_75_6fb_v_dual_l20.xml" />
+  <xacro:arg name="scene_config" default="$(find rm_mujoco)/config/piano_scene.yaml" />
+  <xacro:property name="initial_positions" value="${xacro.load_yaml('$(arg scene_config)')['initial_positions']}" />
 
   <ros2_control name="MujocoSystem" type="system">
     <hardware>
       <plugin>mujoco_ros2_control/MujocoSystemInterface</plugin>
-      <param name="mujoco_model">$(find rm_mujoco)/models/rm_75_6fb_v_dual_l20.xml</param>
+      <param name="mujoco_model">$(arg mujoco_model)</param>
       <param name="sim_speed_factor">1.0</param>
       <param name="headless">$(arg headless)</param>
+      <!-- Overview cameras are for the viewer, not ROS image streams. -->
+      <param name="auto_register_cameras">false</param>
     </hardware>
 
     <xacro:macro name="position_joint" params="joint_name">
       <joint name="${joint_name}">
         <command_interface name="position" />
-        <state_interface name="position"><param name="initial_value">0.0</param></state_interface>
+        <state_interface name="position"><param name="initial_value">${initial_positions.get(joint_name, 0.0)}</param></state_interface>
         <state_interface name="velocity" />
       </joint>
     </xacro:macro>
@@ -26,6 +31,10 @@
       <xacro:position_joint joint_name="${prefix}_joint5" />
       <xacro:position_joint joint_name="${prefix}_joint6" />
       <xacro:position_joint joint_name="${prefix}_joint7" />
+      <joint name="${prefix}_camera_rojoint">
+        <state_interface name="position"><param name="initial_value">0.0</param></state_interface>
+        <state_interface name="velocity" />
+      </joint>
     </xacro:macro>
 
     <xacro:macro name="hand_joints" params="prefix">
