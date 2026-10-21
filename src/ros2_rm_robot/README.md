@@ -8,7 +8,7 @@ The current target path is:
 - MoveIt 2 and RViz planning for the `left_arm`, `right_arm`, and `dual_arms` groups;
 - two L20 hand controllers in MuJoCo, driven by the dual hand command bridge.
 
-The intended real-hardware configuration is also dual-arm. The repository does not contain an L20 RS485 hardware driver, and the L20 bridge described below is for the MuJoCo controllers. The real-arm entry now starts separate left and right RM75 drivers and control nodes, a dual-arm joint-state bridge, and dual-arm MoveIt/RViz.
+The intended real-hardware configuration also has two arms and two hands. The repository includes the L20-11 RS485 protocol and ROS node in `rm_l20_driver`; an external LinkerHand SDK is no longer required. The L20 bridge described below is for the MuJoCo controllers. The real-arm entry starts separate left and right RM75 drivers and control nodes, a dual-arm joint-state bridge, and dual-arm MoveIt/RViz. The piano hardware entry also starts both L20 drivers.
 
 ## Packages
 
@@ -18,6 +18,7 @@ The intended real-hardware configuration is also dual-arm. The repository does n
 | `rm_75_config` | RM75-6FB-V MoveIt configuration and dual-arm SRDF |
 | `rm_mujoco` | Dual RM75 + dual L20 MuJoCo model, controllers, and launch file |
 | `rm_driver` | RealMan arm driver |
+| `rm_l20_driver` | L20-11 RS485 protocol and hardware ROS driver |
 | `rm_control` | MoveIt to driver trajectory forwarding |
 | `rm_bringup` | RM75-6FB-V real-arm launch entry |
 | `rm_moveit2` | MoveIt example node |
@@ -28,16 +29,19 @@ Legacy examples and Gazebo sources that are marked with `COLCON_IGNORE` are not 
 
 ## Build
 
-On Ubuntu 22.04 with ROS 2 Humble:
+Use a fresh terminal on Ubuntu 22.04 with ROS 2 Humble. Only source Humble before building; an external LinkerHand SDK overlay is not needed:
 
 ```bash
 cd ~/ros2_ws
 source /opt/ros/humble/setup.bash
+python3 -m pip install --user -r src/ros2_rm_robot/requirements-hardware.txt
 colcon build --symlink-install
 source install/setup.bash
 ```
 
 The MuJoCo launch requires the external `mujoco_ros2_control` package, MoveIt 2, RViz 2, `xacro`, and the standard ROS 2 controller packages.
+
+`requirements-hardware.txt` records version constraints for `pymodbus`, `pyserial`, `numpy`, `mido`, and `python-rtmidi`. The integrated L20 protocol still requires these basic communication and MIDI libraries. ROS package dependencies are declared in each package's `package.xml`.
 
 ## Launch the dual-arm MuJoCo simulation
 
@@ -80,12 +84,14 @@ ros2 launch rm_piano_player rm_75_dual_l20_piano_mujoco.launch.py \
   midi_file:=/absolute/path/song.mid headless:=true use_rviz:=false execute:=false
 ```
 
-The real entry defaults to left arm `192.168.1.18`, right arm `192.168.1.19`, left hand `/dev/ttyUSB0`, right hand `/dev/ttyUSB1`, and the SDK hand parameter `L20-11`:
+The real entry defaults to left arm `192.168.1.18`, right arm `192.168.1.19`, left hand `/dev/ttyUSB0`, right hand `/dev/ttyUSB1`, and the hand parameter `L20-11`:
 
 ```bash
 ros2 launch rm_piano_player rm_75_dual_l20_piano_real.launch.py \
   midi_file:=/absolute/path/song.mid execute:=false
 ```
+
+This entry uses the in-repository `rm_l20_driver/l20_rs485_driver`. `execute=false` only disables player actions; the launch still connects to the arms and hand serial ports. To inspect arguments without starting hardware nodes, use `ros2 launch rm_piano_player rm_75_dual_l20_piano_real.launch.py --show-args`.
 
 Set `midi_input:=<port-name>` and `feedback_enabled:=true` to check missing notes, unexpected notes, and timing timeouts. `tempo_scale` is a time multiplier, so larger values slow playback. This is a RoboPianist-style hardware behavior reproduction; the original Shadow Hand RL policy and key-contact reward are outside the first phase.
 
@@ -108,9 +114,9 @@ ros2 launch rm_bringup rm_75_6fb_v_bringup.launch.py \
   left_udp_port:=<left-udp-port> right_udp_port:=<right-udp-port>
 ```
 
-The launch isolates the two driver/control stacks in the `left_arm` and `right_arm` namespaces and merges their joint states to `/joint_states` for the dual-arm URDF, MoveIt, and RViz. The L20 RS485 hardware driver is still outside this repository; connect it separately on `/dev/ttyUSB0` and `/dev/ttyUSB1`.
+The launch isolates the two driver/control stacks in the `left_arm` and `right_arm` namespaces and merges their joint states to `/joint_states` for the dual-arm URDF, MoveIt, and RViz. This arm-only entry does not start the hands. Use the piano hardware entry above to also start the in-repository L20 RS485 drivers on `/dev/ttyUSB0` and `/dev/ttyUSB1`.
 
-Before using hardware, build on Ubuntu/ROS 2 Humble and verify both arm IP addresses, UDP feedback addresses, and ports. This checkout has only received static validation; physical motion has not been tested here.
+Before using hardware, build on Ubuntu/ROS 2 Humble and verify both arm IP addresses, UDP feedback addresses, and ports. The original nine packages passed a Jetson build and basic dependency checks; physical motion has not been tested. Validation of this L20 driver integration will be recorded separately. Existing simulation and test evidence is documented in `rm_piano_player/README_CN.md`.
 
 Hardware acceptance order: test `/dev/ttyUSB0`, then `/dev/ttyUSB1`, inspect both hand state topics, run single-key arm motions, run a slow scale, and only then enable MIDI feedback for a fixed song. Keep the emergency stop accessible and clear the robot workspace before enabling execution.
 

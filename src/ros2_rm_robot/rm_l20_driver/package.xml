@@ -1,0 +1,24 @@
+<?xml version="1.0"?>
+<package format="3">
+  <name>rm_l20_driver</name>
+  <version>0.1.0</version>
+  <description>Standalone L20 RS485 driver for the RM75 dual-hand workspace.</description>
+  <maintainer email="dianjinglab@todo.todo">dianjinglab</maintainer>
+  <license>Apache-2.0</license>
+
+  <buildtool_depend>ament_python</buildtool_depend>
+  <exec_depend>rclpy</exec_depend>
+  <exec_depend>sensor_msgs</exec_depend>
+  <exec_depend>std_msgs</exec_depend>
+  <exec_depend>launch</exec_depend>
+  <exec_depend>launch_ros</exec_depend>
+  <exec_depend>python3-numpy</exec_depend>
+  <exec_depend>python3-serial</exec_depend>
+  <!-- The required pymodbus version is pinned in setup.py and requirements-hardware.txt. -->
+  <exec_depend>python3-pymodbus</exec_depend>
+  <test_depend>python3-pytest</test_depend>
+
+  <export>
+    <build_type>ament_python</build_type>
+  </export>
+</package>

@@ -27,28 +27,24 @@ def generate_launch_description():
         }.items(),
     )
     left_hand = Node(
-        package="linker_hand_ros2_sdk",
-        executable="linker_hand_sdk",
-        name="left_linker_hand_sdk",
+        package="rm_l20_driver",
+        executable="l20_rs485_driver",
+        name="left_l20_driver",
         output="screen",
         parameters=[{
             "hand_type": "left",
             "hand_joint": LaunchConfiguration("hand_joint"),
-            "is_touch": True,
-            "can": "None",
             "modbus": LaunchConfiguration("left_hand_port"),
         }],
     )
     right_hand = Node(
-        package="linker_hand_ros2_sdk",
-        executable="linker_hand_sdk",
-        name="right_linker_hand_sdk",
+        package="rm_l20_driver",
+        executable="l20_rs485_driver",
+        name="right_l20_driver",
         output="screen",
         parameters=[{
             "hand_type": "right",
             "hand_joint": LaunchConfiguration("hand_joint"),
-            "is_touch": True,
-            "can": "None",
             "modbus": LaunchConfiguration("right_hand_port"),
         }],
     )

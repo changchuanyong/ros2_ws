@@ -1,0 +1,9 @@
+# Python 3.10 / Ubuntu 22.04 / ROS 2 Humble.
+# L20 Modbus RTU transport; pymodbus 3.5.1 matches the imported protocol API.
+pymodbus==3.5.1
+pyserial==3.5
+numpy>=1.21,<2
+
+# Digital piano MIDI feedback; versions verified on Jetson ARM64.
+mido==1.3.3
+python-rtmidi==1.5.8
