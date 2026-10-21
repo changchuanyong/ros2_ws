@@ -56,4 +56,12 @@ install(FILES README_CN.md
   DESTINATION share/${PROJECT_NAME}
 )
 
+if(BUILD_TESTING)
+  find_package(ament_cmake_pytest REQUIRED)
+  ament_add_pytest_test(test_midi_feedback_monitor
+    test/test_midi_feedback_monitor.py
+    TIMEOUT 30
+  )
+endif()
+
 ament_package()

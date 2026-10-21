@@ -64,3 +64,25 @@ ros2 launch rm_piano_player rm_75_dual_l20_piano_real.launch.py \
 - 当前 MuJoCo 场景包含 88 键几何模型，但尚未实现 RoboPianist 的琴键接触奖励和力反馈。
 
 真机按以下顺序验收：左手 `/dev/ttyUSB0` 单独通信 → 右手 `/dev/ttyUSB1` 单独通信 → 检查 `/cb_left_hand_state` 和 `/cb_right_hand_state` → 双臂单键接近 → 双手单音阶 → 低速 MIDI 曲目 → 开启 MIDI 反馈。出现漏键、错键或超时后，播放器会停止后续动作；机械臂工作范围内不得有人，并保留急停可达。
+
+## Jetson 验证记录（2026-10-21）
+
+验证环境为 Ubuntu 22.04 / ARM64 / ROS 2 Humble，工作目录为
+`/home/dianjinglab/ros2_ws_rm75_02d70d1`。原 `/home/dianjinglab/ros2_ws` 保留。
+
+- `rm_description`、`rm_75_config`、`rm_mujoco`、`rm_piano_player` 构建通过；
+  `colcon test-result --verbose` 返回 `16 tests, 0 errors, 0 failures, 0 skipped`。
+  按项目要求，仅未声明许可的 `rm_description` 版权检查不参与测试。
+- 无头仿真中五个控制器全部为 `active`，`/joint_states` 包含 56 个关节。
+  双臂、双手的四个 `FollowJointTrajectory` 动作均返回 `error_code=0`；
+  左右手 20 值命令均转换为 21 关节轨迹，检查期间没有仿真时钟重置。
+- 默认 YAML 下双手 MIDI 干运行通过，同手和弦被拒绝。
+  新增模型稳定性测试运行 5 秒；另完成 10 秒双手全范围平滑往返检查。
+  MIDI 反馈节点测试使用假 MIDI 端口，仅验证初始化和事件处理，不代表硬件反馈通过。
+- 两个 Python 节点在 SIGINT 后正常退出。系统安装的 `move_group` 曾在退出时出现
+  `rclcpp::CallbackGroup` 析构段错误，该系统组件的退出问题仍需单独定位。
+
+原始日志保存在该远端目录的 `.validation/`：`final_test_result.log`、
+`simulation_motion_check.log`、`simulation_runtime_fixed.log` 和 `clean_shutdown.json`。
+Jetson 尚未安装 `mido` / `python-rtmidi`，本次未启动真机或验证数字钢琴反馈，
+也未验证完整 MIDI 曲目的 MoveIt 按键执行。

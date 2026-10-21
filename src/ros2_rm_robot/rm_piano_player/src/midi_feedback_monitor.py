@@ -6,6 +6,7 @@ import time
 from collections import defaultdict, deque
 
 import rclpy
+from rclpy.executors import ExternalShutdownException
 from rclpy.node import Node
 from rclpy.qos import QoSDurabilityPolicy, QoSProfile
 from std_msgs.msg import Bool, String
@@ -46,7 +47,7 @@ class MidiFeedbackMonitor(Node):
             raise RuntimeError("MIDI feedback requires mido and python-rtmidi") from exc
         self.mido = mido
         self.input_port = mido.open_input(self.midi_input)
-        self.get_logger().info("Listening for MIDI feedback on %s", self.midi_input)
+        self.get_logger().info(f"Listening for MIDI feedback on {self.midi_input}")
 
     def expected_callback(self, message: String):
         if not self.enabled:
@@ -56,7 +57,7 @@ class MidiFeedbackMonitor(Node):
             note = int(event["note"])
             event_type = str(event["type"])
         except (ValueError, KeyError, TypeError, json.JSONDecodeError) as exc:
-            self.get_logger().warning("Invalid expected MIDI event: %s", exc)
+            self.get_logger().warning(f"Invalid expected MIDI event: {exc}")
             return
         expected_at = time.monotonic()
         self.expected[(event_type, note)].append(
@@ -161,11 +162,14 @@ def main(args=None):
     try:
         node = MidiFeedbackMonitor()
         rclpy.spin(node)
+    except (KeyboardInterrupt, ExternalShutdownException):
+        pass
     finally:
         if node is not None:
             node.close()
             node.destroy_node()
-        rclpy.shutdown()
+        if rclpy.ok():
+            rclpy.shutdown()
 
 
 if __name__ == "__main__":

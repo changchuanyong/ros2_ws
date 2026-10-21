@@ -2,6 +2,12 @@
 <mujoco model="rm_75_6fb_v_dual_l20">
   <compiler angle="radian" meshdir="../meshes" />
   <option timestep="0.002" integrator="implicitfast" gravity="0 0 -9.81" />
+  <default>
+    <default class="l20">
+      <!-- Stabilize the low-inertia fingers at the 2 ms simulation timestep. -->
+      <joint damping="0.1" />
+    </default>
+  </default>
   <visual>
     <global offwidth="1920" offheight="1080" />
     <headlight diffuse="0.7 0.7 0.7" ambient="0.25 0.25 0.25" specular="0.1 0.1 0.1" />
@@ -99,7 +105,7 @@
                     <body name="left_rm75_l20_flange" pos="0 0 0">
                       <geom name="left_rm75_l20_flange_visual" type="cylinder" size="0.04 0.006" rgba="0.25 0.27 0.30 1" contype="1" conaffinity="1" />
                       <site name="left_l20_mount" pos="0 0 0.006" size="0.005" rgba="0.1 0.8 0.2 1" />
-                      <body name="left_l20_base_link" pos="0 0 0.012">
+                      <body name="left_l20_base_link" pos="0 0 0.012" childclass="l20">
                         <geom type="mesh" rgba="1 1 1 1" mesh="l20_base_link" />
                         <body name="left_thumb_link0" pos="-0.0025189 0.0050821 0.052292">
                           <inertial pos="0.0127889 0.00250561 0.00163117" quat="0.653382 0.714726 0.1516 -0.198183" mass="0.00274798" diaginertia="3.03393e-07 2.76443e-07 9.59634e-08" />
@@ -264,7 +270,7 @@
                     <body name="right_rm75_l20_flange" pos="0 0 0">
                       <geom name="right_rm75_l20_flange_visual" type="cylinder" size="0.04 0.006" rgba="0.25 0.27 0.30 1" contype="1" conaffinity="1" />
                       <site name="right_l20_mount" pos="0 0 0.006" size="0.005" rgba="0.1 0.8 0.2 1" />
-                      <body name="right_l20_base_link" pos="0 0 0.012">
+                      <body name="right_l20_base_link" pos="0 0 0.012" childclass="l20">
                         <geom type="mesh" rgba="1 1 1 1" mesh="l20_base_link" />
                         <body name="right_thumb_link0" pos="-0.0025189 0.0050821 0.052292">
                           <inertial pos="0.0127889 0.00250561 0.00163117" quat="0.653382 0.714726 0.1516 -0.198183" mass="0.00274798" diaginertia="3.03393e-07 2.76443e-07 9.59634e-08" />

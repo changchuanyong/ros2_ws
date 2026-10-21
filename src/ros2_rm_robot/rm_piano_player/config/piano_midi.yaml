@@ -23,8 +23,8 @@ piano_midi_player:
     acceleration_scaling: 0.10
     planning_time: 5.0
     return_home: false
-    hand_open: [0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
-                0, 0, 0, 0, 0, 0, 0, 0, 0, 0]
+    hand_open: [0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0,
+                0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0]
     hand_press_value: 180.0
 
 midi_feedback_monitor:
