@@ -7,6 +7,7 @@ from moveit_configs_utils.launches import generate_moveit_rviz_launch
 from launch import LaunchDescription
 from launch.actions import (
     DeclareLaunchArgument,
+    GroupAction,
     IncludeLaunchDescription,
 )
 from launch.conditions import IfCondition
@@ -29,10 +30,10 @@ def generate_launch_description():
         .robot_description(
             file_path=description_path,
             mappings={
-                "left_xyz": "0 -0.075 0.5",
-                "left_rpy": "3.14 1.57 1.5707963267949",
-                "right_xyz": "0 0.075 0.5",
-                "right_rpy": "3.14 1.57 -1.5707963267949",
+                "left_xyz": "0 -0.35 0.5",
+                "left_rpy": "0 0 0",
+                "right_xyz": "0 0.35 0.5",
+                "right_rpy": "0 0 0",
             },
         )
         .robot_description_semantic(file_path="config/rm_75_6fb_v_dual_description.srdf")
@@ -137,15 +138,22 @@ def my_generate_moveit_rviz_launch(ld, moveit_config):
         moveit_config.robot_description_kinematics,
     ]
 
+    # The helper owns each node's debug condition; gate both nodes together.
+    rviz_launch = LaunchDescription()
     add_debuggable_node(
-        ld,
+        rviz_launch,
         package="rviz2",
         executable="rviz2",
         output="log",
         respawn=False,
         arguments=["-d", LaunchConfiguration("rviz_config")],
         parameters=rviz_parameters,
-        condition=IfCondition(LaunchConfiguration("use_rviz")),
+    )
+    ld.add_action(
+        GroupAction(
+            actions=list(rviz_launch.entities),
+            condition=IfCondition(LaunchConfiguration("use_rviz")),
+        )
     )
 
     return ld
