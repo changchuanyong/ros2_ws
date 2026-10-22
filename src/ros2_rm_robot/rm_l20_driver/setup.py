@@ -15,7 +15,7 @@ setup(
         ("share/" + package_name + "/launch", glob("launch/*.launch.py")),
         ("share/" + package_name + "/config", glob("config/*.yaml")),
     ],
-    install_requires=["setuptools", "pymodbus==3.5.1", "pyserial==3.5", "numpy>=1.21,<2"],
+    install_requires=["setuptools", "pymodbus==3.5.1", "pyserial==3.5", "numpy>=1.21,<2", "PyYAML"],
     zip_safe=False,
     maintainer="dianjinglab",
     maintainer_email="dianjinglab@todo.todo",
@@ -27,6 +27,7 @@ setup(
             "l20_rs485_driver = rm_l20_driver.node:main",
             "l20_dual_rs485_driver = rm_l20_driver.dual_node:main",
             "l20_wait_ready = rm_l20_driver.wait_ready:main",
+            "l20_hand_gui = rm_l20_driver.gui:main",
         ],
     },
 )

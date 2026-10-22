@@ -31,5 +31,8 @@ Local adaptations:
   dual-hand readiness and fault handling without automatic reconnection.
 
 The external SDK's package loader, CAN drivers, other hand models and GUI
-are not part of this package. The ROS node does not expose calibration,
+are not bundled in this package. The local dual-hand debug GUI is independently
+implemented, referencing the SDK's joint-control layout without copying its
+preset poses or depending on its packages. It uses this package's ROS topics
+and saves command-pose files; the ROS driver does not expose device calibration,
 flash writes, sensor configuration, or factory-reset operations.
