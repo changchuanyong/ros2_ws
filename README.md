@@ -79,6 +79,69 @@ MUJOCO_GL=egl python3 -m rm_mujoco.render --output /tmp/piano_scene.png
 
 更多尺寸、相机和动力学说明见 [MuJoCo 场景说明](src/ros2_rm_robot/rm_mujoco/README.md)。
 
+## 右手固定姿态演奏《欢乐颂》
+
+此入口仅控制右手 L20-11。RM75 由操作者使用示教器定位并保持不动；程序不启动机械臂、MoveIt、左手或 MIDI 反馈。目标为 C4、D4、E4、F4、G4（MIDI 60、62、64、65、67），演奏一次以下 15 音，按人工听音验收：
+
+```text
+E E F G · G F E D · C C D E · E D D
+```
+
+先构建并加载工作空间环境。默认干运行不启动串口驱动、不连接硬件、不发送位置命令：
+
+```bash
+ros2 launch rm_piano_player l20_right_hand_piano.launch.py
+ros2 launch rm_piano_player l20_right_hand_piano.launch.py mode:=melody execute:=false
+```
+
+日志输出标定完整性和预计命令时间表。默认的 [right_hand_ode_to_joy.yaml](src/ros2_rm_robot/rm_piano_player/config/right_hand_ode_to_joy.yaml) 中六组姿态都是空数组、`verified: false`，因此可以预览，但不能执行。将模板复制到自己的标定文件，避免重新构建时覆盖实机记录：
+
+```bash
+cp src/ros2_rm_robot/rm_piano_player/config/right_hand_ode_to_joy.yaml \
+  ~/right_hand_ode_to_joy.yaml
+```
+
+GUI 标定顺序：
+
+1. 先远离琴键，在设备实际支持的 GUI 设置中确认低速和输出约束，核对运动方向。ROS 播放器只发位置，`JointState.velocity/effort` 不提供限速或限力。
+2. 用示教器固定手腕，检查五指能否同时覆盖五个白键。候选对应是拇指 C、食指 D、中指 E、无名指 F、小指 G；实际映射须按安装朝向和指尖位置确认。不能覆盖时先调整安装或示教姿态。
+3. 在 GUI 中记录 `READY` 与 `PRESS_C`～`PRESS_G` 六组完整**目标命令值**。每组 `positions` 必须恰好 20 个有限的 `0–255` 数值，顺序为 ROOT × 5、YAW × 5、ROLL × 5、TIP × 5，各组从拇指到小指。不要复制状态反馈或 30 寄存器数组，不要截断越界值；非拇指 ROLL 槽位是保留位，按 GUI 命令格式保留。
+4. GUI 与 ROS 交替使用，启动 ROS 前关闭 GUI 串口。先填入 READY 和一个 PRESS，用下列单键模式验证；已填写但 `verified: false` 的姿态可用于单键测试。逐键验证后再将相应 `verified` 改为 `true`，整段演奏要求六组全部有效且已确认。
+
+单键测试会连接右手并核验 [hand_identity.yaml](src/ros2_rm_robot/rm_l20_driver/config/hand_identity.yaml) 中的完整右手 UID，不要求左手在线。先核对配置与实物标签；自动发现仅扫描 `1a86:7523` 转接器，指定 `hand_port:=/dev/ttyUSB1` 时仍会校验身份。不要同时运行双手驱动、其他手部命令发布器或另一个单手播放器。
+
+```bash
+# 只发送 READY，等待 ready_settle 后结束
+ros2 launch rm_piano_player l20_right_hand_piano.launch.py \
+  pose_config:=$HOME/right_hand_ode_to_joy.yaml execute:=true \
+  mode:=pose_test pose:=READY hand_port:=auto
+
+# READY → PRESS_C → READY；依次将 pose 改为 PRESS_D、PRESS_E、PRESS_F、PRESS_G
+ros2 launch rm_piano_player l20_right_hand_piano.launch.py \
+  pose_config:=$HOME/right_hand_ode_to_joy.yaml execute:=true \
+  mode:=pose_test pose:=PRESS_C hand_port:=auto
+
+# 六组姿态确认后，15 音播放一次；每音之后回 READY，重复音也完整释放
+ros2 launch rm_piano_player l20_right_hand_piano.launch.py \
+  pose_config:=$HOME/right_hand_ode_to_joy.yaml execute:=true mode:=melody \
+  press_duration:=0.5 release_duration:=0.5 ready_settle:=1.0
+```
+
+`execute` 默认 `false`，`mode` 默认 `pose_test`，`pose` 默认 `READY`，`hand_port` 默认 `auto`。三个时间参数单位为秒，必须有限且大于零。时序使用单调时钟；每次仅允许一条待确认命令，收到驱动串口写入成功的确认后才开始完整的保持/释放间隔，调度延迟不会触发集中补发。写入确认超过 0.5 秒未到达会停止后续动作。当前是等时值的简化旋律，并非完整乐谱节奏。
+
+程序最多等待 10 秒，要求本次启动的右手驱动就绪、状态新鲜且命令订阅建立。就绪通道每次启动独立，状态超过 0.5 秒未更新、驱动故障或失去就绪都会终止后续命令；身份识别后复用同一已验证串口连接。单手入口会在播放器结束时关闭此次驱动。
+
+另一个已加载环境的终端可查看状态和主动停止：
+
+```bash
+ros2 topic echo /single_hand_piano/status
+ros2 service call /single_hand_piano/stop std_srvs/srv/Trigger '{}'
+```
+
+状态为 JSON，含阶段、音符序号、目标姿态、单调时钟发送时间和失败原因；`awaiting_write` 表示等待串口写入确认，`written_at` 是收到确认的单调时钟时间。这些仅表示位置命令进度，不表示琴键已经发声。正常结束保持 READY；主动停止且通信健康时等待当前写入确认，最多再发一次 READY，确认该次写入后结束。通信故障时不继续发送位置命令，断连或强制退出不能保证自动松键。软件停止不等同于机械急停。
+
+实机验收须逐项记录：远离琴键核对方向和 READY；定位后 C4～G4 各连续按下、发声、抬起三次且无相邻键误触；单独验证 E/E 和 C/C；运行上述整段命令三次，人工确认均无漏音、串键、持续压键；验证主动停止和驱动故障后不再继续演奏。只有全部完成才记录“单手《欢乐颂》人工听音验收通过”。仓库模板未标定，软件测试不能代替这项实机验收，MIDI 自动闭环留待下一阶段。
+
 ## MIDI 播放与反馈
 
 目标链路为：MIDI 文件 → 音符调度与左右分配 → 双臂 MoveIt 轨迹 → L20 手指命令 → 数字钢琴 MIDI 反馈。
@@ -156,7 +219,9 @@ colcon test-result --verbose
 
 2026-10-21 的 Jetson 桌琴场景验证记录：全部 10 个包构建通过；11 项场景/几何/动力学测试、C++ 键位映射测试和 2 项 MIDI 反馈测试通过。无头运行中五个控制器为 `active`，发布 58 个关节状态；双臂初始状态碰撞检查通过，左右臂和左右手各一次小幅轨迹返回 `error_code=0`，MIDI 干运行通过。详细日志位置见 [场景验证记录](src/ros2_rm_robot/rm_mujoco/README.md#jetson-验证2026-10-21)。
 
-这些是对应版本的验证记录。当前新增的 L20 UID 自动识别改动另在 WSL 做离线验证，尚未部署至 Jetson；不能用此前的 Jetson 构建或驱动测试代替本次 UID 改动的真机验收。
+上述桌琴场景结果属于对应版本。2026-10-22，右手《欢乐颂》功能及 L20 UID 驱动在 Jetson（aarch64 / ROS 2 Humble）的独立目录 `/home/dianjinglab/ros2_ws_single_hand_test_20261022_WQ2CLp` 验证：`rm_l20_driver`、`rm_piano_player` 两包构建通过，最终 `colcon test-result` 为 277 tests、0 errors、0 failures、0 skipped。测试覆盖原双手回归、真实 ROS 假驱动通信，以及安装后 launch 与 Linux PTY 的完整链路；0.1 秒按下/释放配置下实际收到全部 31 条位置写入，末条为 READY，释放间隔完整。
+
+本次测试修复了 Windows 源码复制后脚本缺少执行权限的问题，并确认退出后释放虚拟串口。Jetson 独立目录保留 `build.log`、`build-piano-final.log`、`test.log`、`test-piano-final.log` 和最终 `test-result.log`；前两轮日志保留了发现问题的过程。验证使用假驱动和 `/dev/pts/*`，没有操作真实机械臂或灵巧手，不能代替实机标定、运动和听音验收。
 
 当前边界：
 

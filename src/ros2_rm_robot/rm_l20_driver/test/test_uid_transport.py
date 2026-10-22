@@ -108,3 +108,26 @@ def test_wrong_manual_side_closes_both_connections():
             discover_hands({'left': LEFT, 'right': RIGHT}, {'left': right_port, 'right': left_port})
         with open_hand(right_port) as hand:
             assert read_verified_uid(hand) == RIGHT
+
+
+def test_right_only_retains_exclusive_verified_pty():
+    with virtual_hand(RIGHT) as (port, requests):
+        bindings = discover_hands({'right': RIGHT}, {'right': port})
+        try:
+            assert set(bindings) == {'right'} and len(requests) == 2
+            with pytest.raises(RuntimeError, match='cannot verify'):
+                discover_hands({'right': RIGHT}, {'right': port})
+            assert len(requests) == 2
+        finally:
+            close_bindings(bindings, print)
+        with open_hand(port) as hand:
+            assert read_verified_uid(hand) == RIGHT
+
+
+def test_right_only_wrong_uid_releases_pty():
+    with virtual_hand(LEFT) as (port, requests):
+        with pytest.raises(ValueError, match='expected'):
+            discover_hands({'right': RIGHT}, {'right': port})
+        assert len(requests) == 2
+        with open_hand(port) as hand:
+            assert read_verified_uid(hand) == LEFT

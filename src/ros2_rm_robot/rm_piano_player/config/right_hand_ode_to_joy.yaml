@@ -1,0 +1,25 @@
+# Record GUI COMMAND targets, not raw feedback or a 30-register array.
+# 20 slots: ROOT thumb..little, YAW thumb..little, ROLL thumb..little,
+# TIP thumb..little. Every value must be finite and within 0..255.
+# Candidate mapping only: thumb C4(60), index D4(62), middle E4(64),
+# ring F4(65), little G4(67). Confirm coverage with the actual mounting.
+# pose_test permits unverified filled poses. melody requires all six verified.
+poses:
+  READY:
+    positions: []
+    verified: false
+  PRESS_C:
+    positions: []
+    verified: false
+  PRESS_D:
+    positions: []
+    verified: false
+  PRESS_E:
+    positions: []
+    verified: false
+  PRESS_F:
+    positions: []
+    verified: false
+  PRESS_G:
+    positions: []
+    verified: false

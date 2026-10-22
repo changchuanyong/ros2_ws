@@ -4,6 +4,7 @@ import math
 
 import rclpy
 from rclpy.executors import ExternalShutdownException, SingleThreadedExecutor
+from rclpy.impl.implementation_singleton import rclpy_implementation as _rclpy
 from rclpy.node import Node
 from rclpy.parameter import Parameter
 from rclpy.qos import DurabilityPolicy, QoSProfile, ReliabilityPolicy
@@ -42,8 +43,13 @@ class DualHandDriver(Node):
 
     def publish_ready(self):
         message = Bool(data=self.ready and not self.faulted)
-        self.ready_publisher.publish(message)
-        self.startup_publisher.publish(message)
+        try:
+            self.ready_publisher.publish(message)
+            self.startup_publisher.publish(message)
+        except _rclpy.RCLError:
+            # Shutdown can occur between the context check and either publish.
+            if rclpy.ok(context=self.context):
+                raise
 
     def initialize(self):
         """Keep every command gate closed until both first state reads succeed."""
@@ -125,6 +131,10 @@ def main(args=None):
         executor.spin()
     except (KeyboardInterrupt, ExternalShutdownException):
         pass
+    except _rclpy.RCLError:
+        # A signal can invalidate a child's publisher during executor callbacks.
+        if rclpy.ok():
+            raise
     except Exception as error:
         if manager is not None:
             manager.get_logger().error(f'L20 startup failed: {error}')

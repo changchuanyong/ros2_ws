@@ -9,6 +9,7 @@ set(CMAKE_CXX_STANDARD 17)
 set(CMAKE_CXX_STANDARD_REQUIRED ON)
 
 find_package(ament_cmake REQUIRED)
+find_package(ament_cmake_python REQUIRED)
 find_package(geometry_msgs REQUIRED)
 find_package(moveit_msgs REQUIRED)
 find_package(moveit_ros_planning_interface REQUIRED)
@@ -43,10 +44,22 @@ install(TARGETS
   DESTINATION lib/${PROJECT_NAME}
 )
 
+# Windows source copies may lack executable bits; symlink-install preserves them.
+set_property(DIRECTORY APPEND PROPERTY CMAKE_CONFIGURE_DEPENDS
+  "${CMAKE_CURRENT_SOURCE_DIR}/src/l20_right_hand_piano.py")
+file(COPY src/l20_right_hand_piano.py
+  DESTINATION "${CMAKE_CURRENT_BINARY_DIR}/scripts"
+  FILE_PERMISSIONS OWNER_READ OWNER_WRITE OWNER_EXECUTE GROUP_READ GROUP_EXECUTE
+                   WORLD_READ WORLD_EXECUTE
+)
+
 install(PROGRAMS
   src/midi_feedback_monitor.py
+  "${CMAKE_CURRENT_BINARY_DIR}/scripts/l20_right_hand_piano.py"
   DESTINATION lib/${PROJECT_NAME}
 )
+
+ament_python_install_package(${PROJECT_NAME})
 
 install(DIRECTORY config launch models
   DESTINATION share/${PROJECT_NAME}
@@ -64,6 +77,10 @@ if(BUILD_TESTING)
     test/test_midi_feedback_monitor.py
     TIMEOUT 30
   )
+  ament_add_pytest_test(test_single_hand_core test/test_single_hand_core.py TIMEOUT 30)
+  ament_add_pytest_test(test_single_hand_node test/test_single_hand_node.py TIMEOUT 120)
+  ament_add_pytest_test(test_single_hand_launch test/test_single_hand_launch.py TIMEOUT 30)
+  ament_add_pytest_test(test_single_hand_process test/test_single_hand_process.py TIMEOUT 90)
 endif()
 
 ament_package()

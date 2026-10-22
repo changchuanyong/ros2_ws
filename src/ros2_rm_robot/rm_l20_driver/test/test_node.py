@@ -2,18 +2,21 @@
 
 import math
 import time
+from types import SimpleNamespace
 
 import pytest
 
 rclpy = pytest.importorskip('rclpy')
 from rclpy.context import Context  # noqa: E402
 from rclpy.executors import SingleThreadedExecutor  # noqa: E402
+from rclpy.impl.implementation_singleton import rclpy_implementation as _rclpy  # noqa: E402
 from rclpy.node import Node  # noqa: E402
 from rclpy.parameter import Parameter  # noqa: E402
 from sensor_msgs.msg import JointState  # noqa: E402
 from std_msgs.msg import Bool  # noqa: E402
 
 from rm_l20_driver import node as driver  # noqa: E402
+from rm_l20_driver import discovery  # noqa: E402
 
 
 class FakeHand:
@@ -63,7 +66,8 @@ def make_node(monkeypatch):
     monkeypatch.setenv('ROS_LOCALHOST_ONLY', '1')
     context = Context()
     rclpy.init(context=context)
-    monkeypatch.setattr(driver, 'open_hand', lambda port, baudrate, slave_id: FakeHand(
+    monkeypatch.setattr(discovery, 'device_key', lambda port: port)
+    monkeypatch.setattr(discovery, 'open_hand', lambda port, baudrate, slave_id: FakeHand(
         modbus_port=port, baudrate=baudrate, hand_id=slave_id))
     nodes = []
 
@@ -82,7 +86,8 @@ def make_node(monkeypatch):
     for node in nodes:
         if node._timer is not None:
             node.destroy_node()
-    context.shutdown()
+    if context.ok():
+        context.shutdown()
 
 
 @pytest.mark.parametrize('side,port', [('left', '/dev/ttyUSB0'), ('right', '/dev/ttyUSB1')])
@@ -112,7 +117,7 @@ def test_both_rs485_model_names(make_node, model):
 def test_bad_parameters_rejected_before_serial_open(make_node, monkeypatch, params):
     def forbidden_open(*args, **kwargs):
         pytest.fail('invalid parameters opened a serial connection')
-    monkeypatch.setattr(driver, 'open_hand', forbidden_open)
+    monkeypatch.setattr(discovery, 'open_hand', forbidden_open)
     with pytest.raises(ValueError):
         make_node(**params)
 
@@ -127,7 +132,7 @@ def test_raw_position_command_preserves_sdk_order(make_node):
 
 def test_wrong_uid_closes_before_state_or_commands(make_node, monkeypatch):
     hand = FakeHand()
-    monkeypatch.setattr(driver, 'open_hand', lambda *args: hand)
+    monkeypatch.setattr(discovery, 'open_hand', lambda *args: hand)
     node, _, _, _ = make_node(expected_uid='OTHER')
     node.command_callback(JointState(position=[0.0] * 20))
     assert node._faulted and hand.close_count == 1
@@ -239,7 +244,7 @@ def test_close_error_does_not_skip_abort_or_resume_commands(make_node):
 def test_connect_failure_stays_faulted(make_node, monkeypatch):
     def failed_open(*args, **kwargs):
         raise ConnectionError('no serial adapter')
-    monkeypatch.setattr(driver, 'open_hand', failed_open)
+    monkeypatch.setattr(discovery, 'open_hand', failed_open)
     node, hand, states, _ = make_node()
     assert hand is None
     assert node._faulted
@@ -283,4 +288,150 @@ def test_fault_shutdown_disposes_both_timers(make_node):
     node.destroy_node()
     assert node._timer is None
     assert node._abort_timer is None
+    assert node._ready_timer is None
     assert hand.close_count == 1
+
+
+def test_right_auto_keeps_the_discovered_connection(make_node, monkeypatch):
+    hand = FakeHand()
+    opened = []
+    monkeypatch.setattr(discovery.list_ports, 'comports', lambda: [
+        SimpleNamespace(device='/fake/right', vid=0x1A86, pid=0x7523)])
+
+    def open_once(port, baudrate, slave_id):
+        opened.append(port)
+        return hand
+
+    monkeypatch.setattr(discovery, 'open_hand', open_once)
+    node, connection, _, _ = make_node(hand_type='right', modbus='auto')
+    assert connection is hand and opened == ['/fake/right']
+    assert node.command_subscription.topic_name == '/cb_right_hand_control_cmd'
+    assert hand.commands == [] and hand.reads == 1
+
+
+def test_private_ready_requires_fresh_state_and_command_gate(make_node, monkeypatch):
+    node, hand, _, _ = make_node(hand_type='right')
+    ready = []
+    monkeypatch.setattr(node.ready_publisher, 'publish', lambda msg: ready.append(msg.data))
+    assert node.ready_publisher.topic_name == '/l20_rs485_driver/ready'
+    assert node._ready_timer.timer_period_ns == 100_000_000
+    assert node.ready_publisher.qos_profile.durability == driver.DurabilityPolicy.VOLATILE
+    node.publish_ready()
+    assert ready[-1] is True
+    node._command_gate = lambda: False
+    node.publish_ready()
+    assert ready[-1] is False
+    node._command_gate = lambda: True
+    node._last_state_time = time.monotonic() - 0.6
+    node.publish_ready()
+    assert ready[-1] is False
+    node.poll_state()
+    node.publish_ready()
+    assert ready[-1] is True
+    hand.read_error = OSError('disconnected')
+    node.poll_state()
+    assert ready[-1] is False
+    node.publish_ready()
+    assert ready[-1] is False
+
+
+def test_shutdown_publishes_not_ready_without_position_write(make_node, monkeypatch):
+    node, hand, _, _ = make_node(hand_type='right')
+    ready = []
+    monkeypatch.setattr(node.ready_publisher, 'publish', lambda msg: ready.append(msg.data))
+    node.destroy_node()
+    assert ready == [False]
+    assert node._ready_timer is None and hand.commands == []
+
+
+def test_command_written_preserves_original_message_after_serial_ack(make_node, monkeypatch):
+    node, hand, _, _ = make_node(hand_type='right')
+    message = JointState(position=[float(index) for index in range(20)])
+    message.header.stamp = node.get_clock().now().to_msg()
+    message.header.frame_id = 'command_correlation'
+    acknowledgements = []
+
+    def acknowledged(value):
+        assert hand.commands == [list(message.position)]
+        acknowledgements.append(value)
+
+    monkeypatch.setattr(node.command_written_publisher, 'publish', acknowledged)
+    assert node.command_written_publisher.topic_name == '/l20_rs485_driver/command_written'
+    node.command_callback(message)
+    assert acknowledgements == [message] and acknowledgements[0] is message
+
+
+@pytest.mark.parametrize('failure', ['write', 'invalid', 'gate', 'faulted'])
+def test_rejected_or_failed_command_has_no_written_ack(make_node, monkeypatch, failure):
+    node, hand, _, _ = make_node(hand_type='right')
+    acknowledgements = []
+    monkeypatch.setattr(node.command_written_publisher, 'publish', acknowledgements.append)
+    message = JointState(position=[128.0] * 20)
+    if failure == 'write':
+        hand.write_error = OSError('serial write rejected')
+    elif failure == 'invalid':
+        message.position = [math.nan] * 20
+    elif failure == 'gate':
+        node._command_gate = lambda: False
+    else:
+        node._enter_fault('injected fault')
+    node.command_callback(message)
+    assert acknowledgements == [] and hand.commands == []
+
+
+def test_shutdown_during_ready_publish_still_closes_serial(make_node, monkeypatch):
+    node, hand, _, _ = make_node(hand_type='right')
+    publish = node.ready_publisher.publish
+
+    def shutdown_then_publish(message):
+        assert node.context.ok()  # destroy_node's initial context check already passed.
+        node.context.shutdown()
+        publish(message)
+
+    monkeypatch.setattr(node.ready_publisher, 'publish', shutdown_then_publish)
+    node.destroy_node()
+    assert hand.close_count == 1 and hand.commands == []
+    assert node._timer is None and node._ready_timer is None
+
+
+def test_ready_publish_error_with_live_context_is_not_suppressed(make_node, monkeypatch):
+    node, _, _, _ = make_node()
+
+    def failed_publish(message):
+        raise _rclpy.RCLError('injected publisher failure with a live context')
+
+    with monkeypatch.context() as patch:
+        patch.setattr(node.ready_publisher, 'publish', failed_publish)
+        with pytest.raises(_rclpy.RCLError, match='injected publisher failure'):
+            node.publish_ready()
+    assert node.context.ok()
+
+
+@pytest.mark.parametrize('shutdown_context', [False, True])
+def test_main_cleans_up_callback_publish_race_only_after_shutdown(monkeypatch, shutdown_context):
+    monkeypatch.setenv('ROS_DOMAIN_ID', '219')
+    monkeypatch.setenv('ROS_LOCALHOST_ONLY', '1')
+    cleanup = []
+    monkeypatch.setattr(driver, 'L20RS485Driver', lambda: SimpleNamespace(
+        destroy_node=lambda: cleanup.append('serial_closed')))
+
+    class InterruptedExecutor:
+        def add_node(self, node):
+            pass
+
+        def spin(self):
+            if shutdown_context:
+                rclpy.shutdown()
+            raise _rclpy.RCLError('injected callback publish failure')
+
+        def shutdown(self):
+            cleanup.append('executor_stopped')
+
+    monkeypatch.setattr(driver, 'SingleThreadedExecutor', InterruptedExecutor)
+    if shutdown_context:
+        driver.main(args=[])
+    else:
+        with pytest.raises(_rclpy.RCLError, match='injected callback publish failure'):
+            driver.main(args=[])
+    assert cleanup == ['executor_stopped', 'serial_closed']
+    assert not rclpy.ok()

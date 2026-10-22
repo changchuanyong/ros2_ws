@@ -66,11 +66,13 @@ def close_bindings(bindings, report):
 
 def discover_hands(expected, ports, *, baudrate=115200, slave_id=1, report=print):
     """Return one retained connection per expected UID, or release all and fail."""
-    for side in ('left', 'right'):
+    if not expected or not set(expected) <= {'left', 'right'} or set(ports) != set(expected):
+        raise IdentityError('expected and ports must describe the same nonempty left/right subset')
+    for side in expected:
         validate_uid(expected[side])
-        if not ports[side]:
+        if not isinstance(ports[side], str) or not ports[side]:
             raise IdentityError(f'{side}_hand_port must be auto or a serial path')
-    if expected['left'] == expected['right']:
+    if len(set(expected.values())) != len(expected):
         raise IdentityError('left and right UIDs must differ')
 
     explicit = {side: device_key(port) for side, port in ports.items() if port != 'auto'}

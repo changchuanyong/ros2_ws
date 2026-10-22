@@ -169,3 +169,43 @@ def test_manual_ports_do_not_scan_other_adapters(environment):
         {'left': LEFT, 'right': RIGHT}, {'left': 'a', 'right': 'b'})
     assert opened == ['a', 'b']
     discovery.close_bindings(result, print)
+
+
+def test_right_only_auto_retains_connection_without_left(environment):
+    devices, opened, _, _ = environment
+    hand = FakeHand(RIGHT)
+    devices['right'] = hand
+    result = discovery.discover_hands({'right': RIGHT}, {'right': 'auto'})
+    assert set(result) == {'right'}
+    assert result['right'].hand is hand
+    assert opened == ['right'] and hand.reads == 2 and hand.closed == 0
+    discovery.close_bindings(result, print)
+
+
+@pytest.mark.parametrize('devices_spec,port,error', [
+    ({'a': LEFT}, 'auto', 'missing configured'),
+    ({'a': LEFT}, 'a', 'expected'),
+    ({'a': RIGHT, 'b': RIGHT}, 'auto', 'duplicate UID'),
+    ({'a': PermissionError('busy')}, 'auto', 'missing configured'),
+    ({'a': PermissionError('busy')}, 'a', 'cannot verify'),
+])
+def test_right_only_wrong_duplicate_or_busy_refused(environment, devices_spec, port, error):
+    devices, _, _, _ = environment
+    devices.update({name: FakeHand(uid) if isinstance(uid, str) else uid
+                    for name, uid in devices_spec.items()})
+    with pytest.raises((ValueError, RuntimeError), match=error):
+        discovery.discover_hands({'right': RIGHT}, {'right': port})
+    assert all(hand.closed == 1 for hand in devices.values() if isinstance(hand, FakeHand))
+
+
+@pytest.mark.parametrize('expected,ports', [
+    ({}, {}), ({'other': RIGHT}, {'other': 'auto'}),
+    ({'right': RIGHT}, {'left': 'auto'}),
+    ({'right': RIGHT}, {'right': 'auto', 'left': 'auto'}),
+    ({'right': RIGHT}, {'right': 123}),
+])
+def test_invalid_subset_rejected_before_port_access(environment, expected, ports):
+    _, opened, _, _ = environment
+    with pytest.raises(discovery.IdentityError):
+        discovery.discover_hands(expected, ports)
+    assert opened == []
