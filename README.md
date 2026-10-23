@@ -83,16 +83,17 @@ RM75 用示教器定位并保持不动，仅控制右手 L20-11，播放 C4～G4
 E E F G · G F E D · C C D E · E D D
 ```
 
-先预览当前源码姿态文件；下面命令不连接硬件、不发送动作：
+先完成[逐键标定](docs/usage.md#调整姿态与重新标定)，关闭双手 GUI、独立驱动及其他手部命令发布器，确认右手已定位于琴键上方，再执行真机播放：
 
 ```bash
 ros2 launch rm_piano_player l20_right_hand_piano.launch.py \
   pose_config:=/home/dianjinglab/ros2_ws_full_20261022/src/ros2_rm_robot/rm_piano_player/config/right_hand_ode_to_joy.yaml \
-  execute:=false mode:=melody
+  execute:=true mode:=melody \
+  press_duration:=0.15 release_duration:=0.15 ready_settle:=1.0
 ```
 
-实际演奏前先完成逐键标定，再按[单键测试与播放步骤](docs/usage.md#右手固定姿态演奏)操作。
-执行模式自带右手驱动，须先关闭双手 GUI、独立驱动及其他手部命令发布器；不启动机械臂、左手或 MIDI 反馈。
+该命令自带右手驱动，播放一次后回到 READY 并退出；不启动机械臂、左手或 MIDI 反馈。
+按压和释放各等待 `0.15 s`，初始 READY 等待 `1.0 s`；单键测试与时序说明见[右手固定姿态演奏](docs/usage.md#右手固定姿态演奏)。
 
 播放期间另开已加载环境的终端查看状态或停止：
 

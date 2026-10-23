@@ -164,7 +164,7 @@ ros2 launch rm_piano_player l20_right_hand_piano.launch.py \
   press_duration:=0.15 release_duration:=0.15 ready_settle:=1.0
 ```
 
-正常完成后发送 `READY` 并自动退出。只运行 `ros2 launch rm_piano_player l20_right_hand_piano.launch.py` 是默认预览，不会演奏。配置路径、单键测试和停止方式见[右手固定姿态演奏](#右手固定姿态演奏)。
+正常完成后发送 `READY` 并自动退出。配置路径、单键测试和停止方式见[右手固定姿态演奏](#右手固定姿态演奏)。
 
 ## 环境与编译
 
@@ -416,21 +416,9 @@ E E F G · G F E D · C C D E · E D D
 | 省略 `pose_config` | ROS 当前环境找到的 `rm_piano_player` 安装包 `share/rm_piano_player/config/right_hand_ode_to_joy.yaml`，不保证始终与源码文件相同 |
 | `pose_config:=$HOME/right_hand_ode_to_joy.yaml` | 主目录中的另一份文件；仅在你有意保存、核对这份副本时使用，源码修改不会自动同步到它 |
 
-### 第一步：预览，不发送动作
+### 真机播放一次
 
-先按[每个终端先加载环境](#每个终端先加载环境)加载环境，再预览当前文件的完整曲目：
-
-```bash
-ros2 launch rm_piano_player l20_right_hand_piano.launch.py \
-  pose_config:=/home/dianjinglab/ros2_ws_full_20261022/src/ros2_rm_robot/rm_piano_player/config/right_hand_ode_to_joy.yaml \
-  execute:=false mode:=melody
-```
-
-输出应为 `phase: dry_run`，列出姿态检查和预计命令时间表，然后退出。预览不启动串口驱动、不连接硬件。仅运行不带参数的启动命令，同样不会动作，其默认行为见下面参数表。
-
-### 第二步：真机播放一次
-
-退出独立双手驱动、调试 GUI 和其他手部命令发布器，释放串口。核对右手 UID 与 [hand_identity.yaml](../src/ros2_rm_robot/rm_l20_driver/config/hand_identity.yaml) 一致，确认手腕位置和键位覆盖正确、手指附近无人接触，然后执行：
+先按[每个终端先加载环境](#每个终端先加载环境)加载环境。退出独立双手驱动、调试 GUI 和其他手部命令发布器，释放串口。核对右手 UID 与 [hand_identity.yaml](../src/ros2_rm_robot/rm_l20_driver/config/hand_identity.yaml) 一致，确认手腕位置和键位覆盖正确、手指附近无人接触，然后执行：
 
 ```bash
 ros2 launch rm_piano_player l20_right_hand_piano.launch.py \
