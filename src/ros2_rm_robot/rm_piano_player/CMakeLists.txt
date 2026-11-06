@@ -46,8 +46,9 @@ install(TARGETS
 
 # Windows source copies may lack executable bits; symlink-install preserves them.
 set_property(DIRECTORY APPEND PROPERTY CMAKE_CONFIGURE_DEPENDS
-  "${CMAKE_CURRENT_SOURCE_DIR}/src/l20_right_hand_piano.py")
-file(COPY src/l20_right_hand_piano.py
+  "${CMAKE_CURRENT_SOURCE_DIR}/src/l20_right_hand_piano.py"
+  "${CMAKE_CURRENT_SOURCE_DIR}/src/l20_right_hand_speed_test.py")
+file(COPY src/l20_right_hand_piano.py src/l20_right_hand_speed_test.py
   DESTINATION "${CMAKE_CURRENT_BINARY_DIR}/scripts"
   FILE_PERMISSIONS OWNER_READ OWNER_WRITE OWNER_EXECUTE GROUP_READ GROUP_EXECUTE
                    WORLD_READ WORLD_EXECUTE
@@ -56,6 +57,7 @@ file(COPY src/l20_right_hand_piano.py
 install(PROGRAMS
   src/midi_feedback_monitor.py
   "${CMAKE_CURRENT_BINARY_DIR}/scripts/l20_right_hand_piano.py"
+  "${CMAKE_CURRENT_BINARY_DIR}/scripts/l20_right_hand_speed_test.py"
   DESTINATION lib/${PROJECT_NAME}
 )
 
@@ -81,6 +83,15 @@ if(BUILD_TESTING)
   ament_add_pytest_test(test_single_hand_node test/test_single_hand_node.py TIMEOUT 120)
   ament_add_pytest_test(test_single_hand_launch test/test_single_hand_launch.py TIMEOUT 30)
   ament_add_pytest_test(test_single_hand_process test/test_single_hand_process.py TIMEOUT 90)
+  ament_add_pytest_test(test_midi_file test/test_midi_file.py TIMEOUT 30)
+  ament_add_pytest_test(test_recording test/test_recording.py TIMEOUT 30)
+  ament_add_pytest_test(test_single_hand_recording test/test_single_hand_recording.py TIMEOUT 120)
+  ament_add_pytest_test(test_speed_test_core test/test_speed_test_core.py TIMEOUT 30)
+  ament_add_pytest_test(test_raw_midi test/test_raw_midi.py TIMEOUT 30)
+  ament_add_pytest_test(test_midi_capture test/test_midi_capture.py TIMEOUT 30)
+  ament_add_pytest_test(test_speed_test_launch test/test_speed_test_launch.py TIMEOUT 30)
+  ament_add_pytest_test(test_speed_test_node test/test_speed_test_node.py TIMEOUT 120)
+  ament_add_pytest_test(test_speed_test_process test/test_speed_test_process.py TIMEOUT 120)
 endif()
 
 ament_package()

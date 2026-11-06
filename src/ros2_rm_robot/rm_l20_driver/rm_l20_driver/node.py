@@ -1,6 +1,8 @@
 """ROS 2 interface for the vendored L20-10/L20-11 RS485 protocol."""
 
+import json
 import math
+import re
 import time
 
 import rclpy
@@ -9,10 +11,11 @@ from rclpy.impl.implementation_singleton import rclpy_implementation as _rclpy
 from rclpy.node import Node
 from rclpy.qos import DurabilityPolicy, QoSProfile, ReliabilityPolicy
 from sensor_msgs.msg import JointState
-from std_msgs.msg import Bool
+from std_msgs.msg import Bool, String
 
 from rm_l20_driver.discovery import discover_hands, validate_uid
-from rm_l20_driver.protocol import KEYS
+from rm_l20_driver.protocol import KEYS, SDK_TO_REG
+from rm_l20_driver.telemetry import SerialTelemetryWorker, validate_rates
 
 
 def validate_positions(values):
@@ -52,6 +55,10 @@ class L20RS485Driver(Node):
         self._abort_timer = None
         self._ready_timer = None
         self._last_state_time = None
+        self._worker = None
+        self._feedback_samples = {}
+        self._enable_requested = False
+        self.telemetry_publisher = None
         try:
             self.declare_parameter('hand_type', 'left')
             self.declare_parameter('hand_joint', 'L20-11')
@@ -60,6 +67,10 @@ class L20RS485Driver(Node):
             self.declare_parameter('baudrate', 115200)
             self.declare_parameter('slave_id', 1)
             self.declare_parameter('poll_rate', 20.0)
+            self.declare_parameter('telemetry_enabled', False)
+            self.declare_parameter('telemetry_rate', 10.0)
+            self.declare_parameter('matrix_rate', 5.0)
+            self.declare_parameter('session_id', '')
 
             self.hand_type = self.get_parameter('hand_type').value
             hand_joint = self.get_parameter('hand_joint').value
@@ -69,6 +80,10 @@ class L20RS485Driver(Node):
             baudrate = self.get_parameter('baudrate').value
             slave_id = self.get_parameter('slave_id').value
             poll_rate = self.get_parameter('poll_rate').value
+            self.telemetry_enabled = self.get_parameter('telemetry_enabled').value
+            rate = self.get_parameter('telemetry_rate').value
+            matrix_rate = self.get_parameter('matrix_rate').value
+            session_id = self.get_parameter('session_id').value
             if self.hand_type not in ('left', 'right'):
                 raise ValueError('hand_type must be left or right')
             if hand_joint not in ('L20-11', 'L20-10'):
@@ -81,6 +96,13 @@ class L20RS485Driver(Node):
                 raise ValueError('slave_id must be within 1..247')
             if not math.isfinite(poll_rate) or not 0 < poll_rate <= 100:
                 raise ValueError('poll_rate must be finite and within (0, 100] Hz')
+            if not isinstance(self.telemetry_enabled, bool):
+                raise ValueError('telemetry_enabled must be a boolean')
+            if self.telemetry_enabled:
+                validate_rates(rate, matrix_rate)
+                if not isinstance(session_id, str) or not re.fullmatch(
+                        r'[A-Za-z0-9_-]{1,128}', session_id):
+                    raise ValueError('telemetry requires a unique nonempty session_id')
         except Exception:
             super().destroy_node()
             raise
@@ -88,6 +110,11 @@ class L20RS485Driver(Node):
         self.state_publisher = self.create_publisher(
             JointState, f'/cb_{self.hand_type}_hand_state', 10)
         self.command_written_publisher = self.create_publisher(JointState, '~/command_written', 10)
+        if self.telemetry_enabled:
+            self.telemetry_publisher = self.create_publisher(
+                String, '~/telemetry', QoSProfile(
+                    depth=100, reliability=ReliabilityPolicy.RELIABLE,
+                    durability=DurabilityPolicy.VOLATILE))
         self.command_subscription = None
         self.ready_publisher = self.create_publisher(
             Bool, '~/ready', QoSProfile(
@@ -100,7 +127,8 @@ class L20RS485Driver(Node):
             QoSProfile(
                 depth=1, reliability=ReliabilityPolicy.RELIABLE,
                 durability=DurabilityPolicy.TRANSIENT_LOCAL))
-        self._timer = self.create_timer(1.0 / poll_rate, self.poll_state)
+        self._timer = self.create_timer(
+            0.01 if self.telemetry_enabled else 1.0 / poll_rate, self.poll_state)
         try:
             if connected_hand is None:
                 binding = discover_hands(
@@ -112,7 +140,16 @@ class L20RS485Driver(Node):
                 self._hand, uid = connected_hand, verified_uid
             if uid != expected_uid:
                 raise ValueError(f'expected UID {expected_uid}, got {uid}')
-            self.poll_state()
+            if self.telemetry_enabled:
+                self._worker = SerialTelemetryWorker(
+                    self._hand, side=self.hand_type, uid=uid, session_id=session_id,
+                    rate=rate, matrix_rate=matrix_rate,
+                    command_gate=lambda: not self._faulted and self._commands_enabled and
+                    self._command_gate() and self._last_state_time is not None and
+                    time.monotonic() - self._last_state_time <= 0.5)
+                self._worker.start()
+            else:
+                self.poll_state()
             if not self._faulted and connected_hand is None:
                 self.enable_commands()
         except Exception as error:
@@ -126,7 +163,11 @@ class L20RS485Driver(Node):
 
     def enable_commands(self):
         """Subscribe only after readiness, so startup commands cannot queue for later."""
+        self._enable_requested = True
         if self._faulted or self._hand is None or not self._command_gate():
+            return
+        if self.telemetry_enabled and (self._last_state_time is None or
+                                       time.monotonic() - self._last_state_time > 0.5):
             return
         if self.command_subscription is None:
             self.command_subscription = self.create_subscription(
@@ -141,6 +182,8 @@ class L20RS485Driver(Node):
                  time.monotonic() - self._last_state_time <= 0.5)
         ready = (not self._faulted and self._hand is not None and
                  self._commands_enabled and self._command_gate() and fresh)
+        if self._worker is not None:
+            ready = ready and self._worker.alive and not self._worker.failure
         try:
             self.ready_publisher.publish(Bool(data=ready))
         except _rclpy.RCLError:
@@ -158,6 +201,10 @@ class L20RS485Driver(Node):
         except (TypeError, ValueError, OverflowError) as error:
             self.get_logger().warning(f'Rejected L20 position command: {error}')
             return
+        if self._worker is not None:
+            if not self._worker.submit(positions, message):
+                self._enter_fault('position command rejected: serial worker busy or stopped')
+            return
         try:
             self._hand.set_joint_positions(positions)
         except Exception as error:
@@ -170,6 +217,9 @@ class L20RS485Driver(Node):
     def poll_state(self):
         """Publish a complete fresh sample, never the previous successful read."""
         if self._faulted or self._hand is None:
+            return
+        if self._worker is not None:
+            self._drain_telemetry()
             return
         try:
             positions = validate_feedback(self._hand.get_state())
@@ -187,8 +237,52 @@ class L20RS485Driver(Node):
         self.state_publisher.publish(message)
         self._last_state_time = time.monotonic()
 
+    def _drain_telemetry(self):
+        """Publish completed worker results without making a serial request."""
+        worker = self._worker
+        for packet, token in worker.drain():
+            self.telemetry_publisher.publish(String(data=json.dumps(packet, allow_nan=False)))
+            if packet['kind'] == 'error':
+                self._enter_fault(packet['error'])
+                return
+            if packet['kind'] == 'command_written':
+                if not self._faulted:
+                    self.command_written_publisher.publish(token)
+                continue
+            if packet['kind'] == 'feedback' and packet['field'] in ('position', 'speed'):
+                self._feedback_samples[packet['field']] = packet
+                if len(self._feedback_samples) != 2:
+                    continue
+                samples, self._feedback_samples = self._feedback_samples, {}
+                oldest = min(sample['finished_ns'] for sample in samples.values()) / 1e9
+                age = time.monotonic() - oldest
+                if not 0 <= age <= 0.5:
+                    self._enter_fault('serial feedback expired before publication')
+                    return
+                message = JointState()
+                stamp = self.get_clock().now().nanoseconds - int(age * 1e9)
+                message.header.stamp.sec, message.header.stamp.nanosec = divmod(stamp, 10**9)
+                message.name = list(KEYS)
+                message.position = [float(samples['position']['values'][i]) for i in SDK_TO_REG]
+                message.velocity = [float(samples['speed']['values'][i]) for i in SDK_TO_REG]
+                # Raw torque is a separate packet, not a value in ROS SI effort units.
+                message.effort = [0.0] * 20
+                self.state_publisher.publish(message)
+                self._last_state_time = oldest
+                if self._enable_requested and not self._commands_enabled:
+                    self.enable_commands()
+        if worker.failure and not self._faulted:
+            self._enter_fault(worker.failure)
+
     def _close_hand(self):
         hand, self._hand = self._hand, None
+        worker, self._worker = self._worker, None
+        if worker is not None:
+            if not worker.stop():
+                self.get_logger().error('serial worker still finishing its admitted transaction')
+            if worker.close_error:
+                self.get_logger().error(f'RS485 close failed: {worker.close_error}')
+            return
         if hand is not None:
             try:
                 hand.close()

@@ -1,5 +1,6 @@
 """Launch only the right hand, with a unique readiness channel per invocation."""
 
+import math
 import os
 import uuid
 
@@ -24,6 +25,9 @@ def launch_arguments():
         'pose_config': os.path.join(piano_share, 'config', 'right_hand_ode_to_joy.yaml'),
         'hand_port': 'auto', 'press_duration': '0.5', 'release_duration': '0.5',
         'ready_settle': '1.0',
+        'midi_input': '',
+        'record': 'false', 'record_dir': os.path.expanduser('~/l20_recordings'),
+        'telemetry_rate': '10.0', 'matrix_rate': '5.0',
         'hand_identity_config': os.path.join(driver_share, 'config', 'hand_identity.yaml'),
     }
     return [DeclareLaunchArgument(name, default_value=value) for name, value in defaults.items()]
@@ -31,20 +35,38 @@ def launch_arguments():
 
 def launch_actions(context):
     """Validate all executable poses before starting a serial driver process."""
-    def value(name):
-        return LaunchConfiguration(name).perform(context)
+    def value(name, default=None):
+        return LaunchConfiguration(name, default=default).perform(context)
 
     execute_text = value('execute').lower()
     if execute_text not in ('true', 'false'):
         raise ValueError('execute must be true or false')
     execute = execute_text == 'true'
+    record_text = value('record', 'false').lower()
+    if record_text not in ('true', 'false'):
+        raise ValueError('record must be true or false')
+    record = record_text == 'true'
+    recording = {
+        'record': record,
+        'midi_input': value('midi_input', '').strip(),
+        'record_dir': value('record_dir', os.path.expanduser('~/l20_recordings')),
+        'telemetry_rate': float(value('telemetry_rate', '10.0')),
+        'matrix_rate': float(value('matrix_rate', '5.0')),
+    }
+    for name, maximum in (('telemetry_rate', 20), ('matrix_rate', 10)):
+        if not math.isfinite(recording[name]) or not 0 < recording[name] <= maximum:
+            raise ValueError(f'{name} must be finite and within (0, {maximum}] Hz')
+    if record and not recording['record_dir'].strip():
+        raise ValueError('record_dir must not be empty')
+    if recording['midi_input'] and not record:
+        raise ValueError('midi_input requires record=true')
     options = {'mode': value('mode'), 'pose': value('pose')}
     for name in ('press_duration', 'release_duration', 'ready_settle'):
         options[name] = float(value(name))
     playback_parameters(**options)
     pose_config = value('pose_config')
     config = load_pose_config(pose_config)
-    parameters = {**options, 'pose_config': pose_config, 'execute': execute}
+    parameters = {**options, **recording, 'pose_config': pose_config, 'execute': execute}
     driver = None
     if execute:
         validate_execution(config, options['mode'], options['pose'])
@@ -63,13 +85,21 @@ def launch_actions(context):
         written_topic = '/single_hand_piano/run_' + run_id + '/command_written'
         parameters.update(driver_node=driver_name, ready_topic=ready_topic,
                           fault_topic=fault_topic, written_topic=written_topic)
+        driver_parameters = {'hand_type': 'right', 'hand_joint': 'L20-11',
+                             'modbus': hand_port, 'expected_uid': uid}
+        remappings = [('~/ready', ready_topic), ('/robopianist/feedback_abort', fault_topic),
+                      ('~/command_written', written_topic)]
+        if record:
+            telemetry_topic = '/single_hand_piano/run_' + run_id + '/telemetry'
+            parameters.update(telemetry_topic=telemetry_topic, session_id=run_id, hand_uid=uid)
+            driver_parameters.update(
+                telemetry_enabled=True, session_id=run_id,
+                telemetry_rate=recording['telemetry_rate'], matrix_rate=recording['matrix_rate'])
+            remappings.append(('~/telemetry', telemetry_topic))
         driver = Node(
             package='rm_l20_driver', executable='l20_rs485_driver', name=driver_name,
             namespace='/', output='screen',
-            parameters=[{'hand_type': 'right', 'hand_joint': 'L20-11',
-                         'modbus': hand_port, 'expected_uid': uid}],
-            remappings=[('~/ready', ready_topic), ('/robopianist/feedback_abort', fault_topic),
-                        ('~/command_written', written_topic)])
+            parameters=[driver_parameters], remappings=remappings)
     player = Node(package='rm_piano_player', executable='l20_right_hand_piano.py',
                   namespace='/', output='screen', parameters=[parameters])
 

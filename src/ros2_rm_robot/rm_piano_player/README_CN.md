@@ -4,7 +4,7 @@
 
 ## 构建
 
-本包已进入默认构建。`rm_l20_driver` 已将 L20-11 RS485 协议和 ROS 节点移入本仓库，无需安装或 source 外部灵心巧手 SDK。仍需基础 Python 通信库和 MIDI 库；版本记录在工作空间的 `src/ros2_rm_robot/requirements-hardware.txt`。
+本包已进入默认构建。`rm_l20_driver` 已将 L20-11 RS485 协议和 ROS 节点移入本仓库，无需安装或 source 外部灵心巧手 SDK。仍需基础 Python 通信库；版本记录在工作空间的 `src/ros2_rm_robot/requirements-hardware.txt`。
 
 在 Ubuntu 22.04 / ROS 2 Humble 的新终端中，从工作空间根目录执行：
 
@@ -15,7 +15,7 @@ colcon build --symlink-install
 source install/setup.bash
 ```
 
-清单包含 `pymodbus`、`pyserial`、`numpy`、`mido` 和 `python-rtmidi`。ROS 包依赖由各包的 `package.xml` 声明；MIDI Python 包通过上述清单安装。
+清单包含 `pymodbus`、`pyserial` 和 `numpy`。ROS 包依赖由各包的 `package.xml` 声明；MIDI 输入直接读取 Linux `/dev/snd/midiC*D*`，不再依赖 `mido`、`python-rtmidi` 或 `/dev/snd/seq`。
 
 ## MuJoCo 双臂双手播放
 
@@ -61,11 +61,11 @@ ros2 launch rm_piano_player rm_75_dual_l20_piano_real.launch.py \
   hand_joint:=L20-11 execute:=false
 ```
 
-确认左右手状态、双臂控制器和 MIDI 输入后，再将 `execute` 改为 `true`，并保持较慢的 `tempo_scale`。数字钢琴 MIDI 输入端口通过 `midi_input:=<port-name>` 指定，并用 `feedback_enabled:=true` 开启漏键、错键和超时检查：
+确认左右手状态、双臂控制器和 MIDI 输入后，再将 `execute` 改为 `true`，并保持较慢的 `tempo_scale`。先用 `ros2 run rm_piano_player l20_right_hand_speed_test.py --list-midi-inputs` 查询当前设备路径，下面路径仅为本机示例。数字钢琴 MIDI 输入端口通过 `midi_input:=/dev/snd/midiC2D0` 指定，并用 `feedback_enabled:=true` 开启漏键、错键和超时检查：
 
 ```bash
 ros2 launch rm_piano_player rm_75_dual_l20_piano_real.launch.py \
-  midi_file:=/absolute/path/song.mid midi_input:=<port-name> \
+  midi_file:=/absolute/path/song.mid midi_input:=/dev/snd/midiC2D0 \
   feedback_enabled:=true execute:=true tempo_scale:=4.0
 ```
 

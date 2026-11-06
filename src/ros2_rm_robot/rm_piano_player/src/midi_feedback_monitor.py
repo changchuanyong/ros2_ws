@@ -11,6 +11,8 @@ from rclpy.node import Node
 from rclpy.qos import QoSDurabilityPolicy, QoSProfile
 from std_msgs.msg import Bool, String
 
+from rm_piano_player.midi_capture import MidiCapture
+
 
 class MidiFeedbackMonitor(Node):
     def __init__(self):
@@ -41,12 +43,7 @@ class MidiFeedbackMonitor(Node):
             return
         if not self.midi_input:
             raise RuntimeError("midi_input must be set when feedback is enabled")
-        try:
-            import mido
-        except ImportError as exc:
-            raise RuntimeError("MIDI feedback requires mido and python-rtmidi") from exc
-        self.mido = mido
-        self.input_port = mido.open_input(self.midi_input)
+        self.input_port = MidiCapture(self.midi_input)
         self.get_logger().info(f"Listening for MIDI feedback on {self.midi_input}")
 
     def expected_callback(self, message: String):
@@ -74,6 +71,47 @@ class MidiFeedbackMonitor(Node):
     def poll_midi(self):
         if not self.enabled or self.input_port is None:
             return
+        if self.input_port.error:
+            self.fail(self.input_port.error)
+            return
+        for message in self.input_port.drain():
+            if message["type"] not in ("on", "off"):
+                continue
+            event_type = message["type"]
+            key = (event_type, int(message["note"]))
+            queue = self.expected.get(key)
+            if not queue:
+                self.publish_feedback(event_type, None, int(message["note"]), None, "unexpected")
+                self.fail("unexpected %s note %d" % (event_type, message["note"]))
+                continue
+            expected_at, _ = queue.popleft()
+            if not queue:
+                self.expected.pop(key, None)
+            actual_at = message["monotonic_ns"] / 1e9
+            error_sec = actual_at - expected_at
+            if abs(error_sec) > self.tolerance_sec:
+                self.publish_feedback(
+                    event_type,
+                    int(message["note"]),
+                    int(message["note"]),
+                    error_sec,
+                    "late",
+                )
+                self.fail(
+                    "late MIDI feedback: %s note %d error %.3fs"
+                    % (event_type, message["note"], error_sec)
+                )
+                continue
+            self.publish_feedback(
+                event_type,
+                int(message["note"]),
+                int(message["note"]),
+                error_sec,
+                "matched",
+            )
+            self.publish_status("matched %s note %d" % (event_type, message["note"]))
+
+        # Match captured arrivals before checking deadlines at the polling time.
         now = time.monotonic()
         expired = [
             key
@@ -86,43 +124,6 @@ class MidiFeedbackMonitor(Node):
             self.fail("missing MIDI feedback: %s" % (expired[0],))
             self.expected.clear()
             return
-
-        for message in self.input_port.iter_pending():
-            if message.type not in ("note_on", "note_off"):
-                continue
-            event_type = "on" if message.type == "note_on" and message.velocity > 0 else "off"
-            key = (event_type, int(message.note))
-            queue = self.expected.get(key)
-            if not queue:
-                self.publish_feedback(event_type, None, int(message.note), None, "unexpected")
-                self.fail("unexpected %s note %d" % (event_type, message.note))
-                continue
-            expected_at, _ = queue.popleft()
-            if not queue:
-                self.expected.pop(key, None)
-            actual_at = time.monotonic()
-            error_sec = actual_at - expected_at
-            if abs(error_sec) > self.tolerance_sec:
-                self.publish_feedback(
-                    event_type,
-                    int(message.note),
-                    int(message.note),
-                    error_sec,
-                    "late",
-                )
-                self.fail(
-                    "late MIDI feedback: %s note %d error %.3fs"
-                    % (event_type, message.note, error_sec)
-                )
-                continue
-            self.publish_feedback(
-                event_type,
-                int(message.note),
-                int(message.note),
-                error_sec,
-                "matched",
-            )
-            self.publish_status("matched %s note %d" % (event_type, message.note))
 
     def fail(self, reason: str):
         if self.failed:

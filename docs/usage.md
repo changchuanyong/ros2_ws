@@ -6,7 +6,7 @@
 
 本仓库是面向双 RM75-6FB-V 机械臂、双 L20 灵巧手和 88 键 MIDI 数字钢琴的 ROS 2 工作空间。开发环境为 Ubuntu 22.04 / ROS 2 Humble，包含 MuJoCo 仿真、MoveIt 2 / RViz 双臂规划、L20 RS485 驱动和 MIDI 播放器。
 
-**当前进展（2026-10-23）：仿真控制链路、真机双臂关节反馈已验证；右手《欢乐颂》15 音符片段已完成一次真机指令播放，最终 READY 写入确认、程序正常退出。琴键发声与音高仍需现场听音验收，机械臂运动和真实钢琴 MIDI 闭环尚未验收。** 真机 RViz 模型已改为直立安装、底座中心相距 70 cm；这项模型修改完成了离线检查，仍需根据实物校准。
+**历史验证（2026-10-23）：仿真控制链路、真机双臂关节反馈已验证；右手《欢乐颂》15 音符片段已完成一次真机指令播放，最终 READY 写入确认、程序正常退出。琴键发声与音高仍需现场听音验收，机械臂运动和真实钢琴 MIDI 闭环尚未验收。** 真机 RViz 模型已改为直立安装、底座中心相距 70 cm；这项模型修改完成了离线检查，仍需根据实物校准。
 
 ## 使用导航
 
@@ -19,6 +19,7 @@
 | 连接真机，先查看双臂状态 | [真机双臂连接](#真机双臂连接) |
 | 检查 L20 身份、串口和状态 | [L20 双手连接](#l20-双手连接) |
 | 用 GUI 调节双手并保存标定姿态 | [L20 双手调试 GUI](#l20-双手调试-gui) |
+| 准备手势、定位、MIDI/压力录制与调速 | [欢乐颂操作流程](piano_workflow.md) |
 | 只用右手演奏《欢乐颂》 | [右手固定姿态演奏](#右手固定姿态演奏) |
 | 运行 MIDI 文件和双臂双手完整入口 | [MIDI 播放与反馈](#midi-播放与反馈) |
 | 排查无反馈、不同步或执行不动 | [常见问题](#常见问题) |
@@ -164,7 +165,7 @@ ros2 launch rm_piano_player l20_right_hand_piano.launch.py \
   press_duration:=0.15 release_duration:=0.15 ready_settle:=1.0
 ```
 
-正常完成后发送 `READY` 并自动退出。配置路径、单键测试和停止方式见[右手固定姿态演奏](#右手固定姿态演奏)。
+正常完成后发送 `READY` 并自动退出。不带参数启动默认只预览，不会演奏。配置路径、单键测试和停止方式见[右手固定姿态演奏](#右手固定姿态演奏)。
 
 ## 环境与编译
 
@@ -379,7 +380,7 @@ GUI 仅在本次启动就绪、双手反馈均在最近 0.5 秒内更新且命�
 
 仓库中的 `right_hand_ode_to_joy.yaml` 已保存 2026-10-23 从 Jetson 导入的六组完整姿态，数据来源和推算方式见下文。`verified: true` 沿用导入值，不能替代实机验收；使用前仍需按实际安装位置完成[逐键标定与核对](#调整姿态与重新标定)。
 
-此入口仅控制右手 L20-11。RM75 由操作者使用示教器定位并保持不动；程序不启动机械臂、MoveIt、左手或 MIDI 反馈。当前是等时值的《欢乐颂》简化片段，共 15 音，播放一次：
+此入口仅控制右手 L20-11。RM75 由操作者使用示教器定位并保持不动；程序不启动机械臂、MoveIt 或左手；可选 MIDI 录制不进行错音判定。当前是等时值的《欢乐颂》简化片段，共 15 音，播放一次：
 
 ```text
 E E F G · G F E D · C C D E · E D D
@@ -393,16 +394,16 @@ E E F G · G F E D · C C D E · E D D
 
 下文统一显式传入这个路径，读取文件当前内容。修改这份 YAML 的数值后无需仅为配置变更重新构建；修改播放器或驱动源码则需重新构建相应功能包。
 
-当前准备、拇指和食指姿态分别取自 `/home/dianjinglab/ready.yaml`、`/home/dianjinglab/muzhi.yaml`、`/home/dianjinglab/shizhi.yaml`，均读取其中的 `poses.READY.positions`。文件中的旧 `PRESS_C` 条目不参与本次更新。准备和拇指姿态保持原始数据；食指、中指、无名指和小指的全部 20 项相对 READY 的变化量缩小到导入或推算值的 50%。
+当前准备、拇指和食指姿态分别取自 `/home/dianjinglab/ready.yaml`、`/home/dianjinglab/muzhi.yaml`、`/home/dianjinglab/shizhi.yaml`，均读取其中的 `poses.READY.positions`。文件中的旧 `PRESS_C` 条目不参与本次更新。食指、中指、无名指和小指的全部 20 项相对 READY 的变化量先缩小到导入或推算值的 50%。随后将六组姿态中的四指 ROOT（01～04）和 TIP（16～19）各增加 15，使手型进一步伸展；拇指关节值、YAW/ROLL 及各按压姿态相对 READY 的变化量保持不变。
 
 | 姿态 | 手指 / 作用 | 数据来源 | 主要槽位：准备 → 按压（从 00 编号） |
 | --- | --- | --- | --- |
-| `READY` | 准备、松键 | `ready.yaml / READY`，全部 20 项 | — |
-| `PRESS_C` | 拇指 C4（60） | `muzhi.yaml / READY`，全部 20 项 | YAW `05`：`251 → 178` |
-| `PRESS_D` | 食指 D4（62） | `shizhi.yaml / READY`，相对变化减半 | ROOT `01`：`183 → 124.5`；TIP `16`：`85 → 122` |
-| `PRESS_E` | 中指 E4（64） | 按食指相对变化推算并减半 | ROOT `02`：`182 → 123.5`；TIP `17`：`86 → 123` |
-| `PRESS_F` | 无名指 F4（65） | 按食指相对变化推算并减半 | ROOT `03`：`182 → 123.5`；TIP `18`：`87 → 124` |
-| `PRESS_G` | 小指 G4（67） | 按食指相对变化推算并减半 | ROOT `04`：`181 → 122.5`；TIP `19`：`88 → 125` |
+| `READY` | 准备、松键 | `ready.yaml / READY`，四指 ROOT/TIP 各加 15 | — |
+| `PRESS_C` | 拇指 C4（60） | `muzhi.yaml / READY`，仅四指 ROOT/TIP 各加 15 | YAW `05`：`251 → 178` |
+| `PRESS_D` | 食指 D4（62） | `shizhi.yaml / READY`，相对变化减半 | ROOT `01`：`198 → 139.5`；TIP `16`：`100 → 137` |
+| `PRESS_E` | 中指 E4（64） | 按食指相对变化推算并减半 | ROOT `02`：`197 → 138.5`；TIP `17`：`101 → 138` |
+| `PRESS_F` | 无名指 F4（65） | 按食指相对变化推算并减半 | ROOT `03`：`197 → 138.5`；TIP `18`：`102 → 139` |
+| `PRESS_G` | 小指 G4（67） | 按食指相对变化推算并减半 | ROOT `04`：`196 → 137.5`；TIP `19`：`103 → 140` |
 
 后三指的推算方法：先计算食指按压姿态相对 READY 的全部 20 项变化量，再在 ROOT、YAW、ROLL、TIP 各组内交换食指与目标手指的变化量，将变化量乘以 0.5 后加回 READY。因此四指的目标 ROOT 变化为 `−58.5`、TIP 变化为 `+37`；其他槽位的配合变化也同步减半。这里的比例指命令位置差，实际指尖行程仍需现场确认。后三组属于待现场调整的推算姿态，并非独立采集的标定数据。
 
@@ -416,7 +417,19 @@ E E F G · G F E D · C C D E · E D D
 | 省略 `pose_config` | ROS 当前环境找到的 `rm_piano_player` 安装包 `share/rm_piano_player/config/right_hand_ode_to_joy.yaml`，不保证始终与源码文件相同 |
 | `pose_config:=$HOME/right_hand_ode_to_joy.yaml` | 主目录中的另一份文件；仅在你有意保存、核对这份副本时使用，源码修改不会自动同步到它 |
 
-### 真机播放一次
+### 第一步：预览，不发送动作
+
+先按[每个终端先加载环境](#每个终端先加载环境)加载环境，再预览当前文件的完整曲目：
+
+```bash
+ros2 launch rm_piano_player l20_right_hand_piano.launch.py \
+  pose_config:=/home/dianjinglab/ros2_ws_full_20261022/src/ros2_rm_robot/rm_piano_player/config/right_hand_ode_to_joy.yaml \
+  execute:=false mode:=melody
+```
+
+输出应为 `phase: dry_run`，列出姿态检查和预计命令时间表，然后退出。预览不启动串口驱动、不连接硬件。仅运行不带参数的启动命令，同样不会动作，其默认行为见下面参数表。
+
+### 第二步：真机播放一次
 
 先按[每个终端先加载环境](#每个终端先加载环境)加载环境。退出独立双手驱动、调试 GUI 和其他手部命令发布器，释放串口。核对右手 UID 与 [hand_identity.yaml](../src/ros2_rm_robot/rm_l20_driver/config/hand_identity.yaml) 一致，确认手腕位置和键位覆盖正确、手指附近无人接触，然后执行：
 
@@ -440,6 +453,9 @@ ros2 launch rm_piano_player l20_right_hand_piano.launch.py \
 | `press_duration` | `0.5` | 按压指令写入确认后的保持时间，秒 |
 | `release_duration` | `0.5` | READY 写入确认后的释放等待时间，秒 |
 | `ready_settle` | `1.0` | 首次 READY 写入确认后的等待时间，秒 |
+| `record` | `false` | 记录压力、触觉和动作事件 |
+| `record_dir` | `~/l20_recordings` | 每次创建独立会话目录 |
+| `midi_input` | 空 | 可选原始 MIDI 路径；要求 `record:=true`，同时导出实际演奏 `.mid` |
 
 上面的整段播放示例显式使用 `press_duration:=0.15 release_duration:=0.15 ready_settle:=1.0`：每音按压、释放等待合计约 `0.3 s`，开始前准备等待 `1.0 s`。这只缩短等待时间，不提高电机本身的运动速度；该节奏尚未完成真机验证，若出现漏音或松键不完整，可将按压、释放时间调回各 `0.2 s`。
 
@@ -477,6 +493,38 @@ ros2 service call /single_hand_piano/stop std_srvs/srv/Trigger '{}'
 实机验收须逐项记录：远离琴键核对方向和 READY；定位后 C4～G4 各连续按下、发声、抬起三次且无相邻键误触；单独验证 E/E 和 C/C；运行上述整段命令三次，人工确认均无漏音、串键、持续压键；验证主动停止和驱动故障后不再继续演奏。只有全部完成才记录“单手《欢乐颂》人工听音验收通过”。当前 YAML 的 `verified` 标记与一次指令播放记录不能替代上述听音验收，MIDI 自动闭环留待下一阶段。
 
 
+### 演奏数据录制
+
+在右手演奏入口加 `record:=true`，使用同一个已通过 UID 验证的串口采集数据，并随演奏保存。`record` 默认关闭；打开后，在文件可写、五类反馈和五指矩阵均收到有效响应之前，不发送初始 READY。以下命令会实际演奏，须先完成上述单键标定并关闭其他驱动：
+
+```bash
+ros2 launch rm_piano_player l20_right_hand_piano.launch.py \
+  pose_config:=/home/dianjinglab/ros2_ws_full_20261022/src/ros2_rm_robot/rm_piano_player/config/right_hand_ode_to_joy.yaml \
+  execute:=true mode:=melody \
+  press_duration:=0.15 release_duration:=0.15 ready_settle:=1.0 \
+  record:=true record_dir:=/home/dianjinglab/l20_recordings \
+  telemetry_rate:=10.0 matrix_rate:=5.0
+```
+
+启动日志和 `/single_hand_piano/status` 的 `recording_dir` 给出本次目录。目录名使用 UTC 时间和随机编号，重复运行不会覆盖已有记录。`record_dir` 可改为其他可写路径。新功能涉及 Python 源码，更新后先重新构建 `rm_l20_driver rm_piano_player` 并加载环境。
+
+- `feedback.csv`：每行保存位置、速度、扭矩、电流或力数据中的一类。前四类保留完整 30 个寄存器；力数据为 20 个值，依次为五指法向力、切向力、切向力方向、接近增量，剩余 CSV 列留空。
+- `touch.jsonl`：每行一帧矩阵，含手指编号（1～5：拇指至小指）、实际行列数及完整 uint16 数据。不会将原始值截断到 255。
+- `events.jsonl`：命令发送、串口写入确认、音符序号、目标姿态、停止和故障事件。
+- `metadata.json`：设备 UID、会话编号、姿态配置快照、演奏参数、各数据流实际采样率和最大间隔、数据序号缺口、命令确认延迟以及最终完成状态。
+
+`started_ns` / `finished_ns` 是每笔采集事务在同一主机上的单调时钟时间，`wall_time_ns` 是对应 Unix 时间，`received_ns` 是记录器接收时间。命令事件含 `monotonic_ns` 和 ROS 消息的 `command_stamp`，用于关联串口写入确认。位置、速度、扭矩合并读 `0～89`，电流和力数据合并读 `150～199`；同一笔事务拆出的字段共用起止时间，但不代表设备内部同步采样。
+
+全部传感数据先按原始寄存器记录，尚未标定为 N、N·m、A，也未推断带符号编码。`valid=true` 只说明响应格式有效；全零响应不能证明未安装传感器，也不能证明实际受力为零。记录真实传感器之前需确认该硬件和固件支持相应寄存器，并核对物理单位。
+
+`telemetry_rate` 是各常规反馈块的目标频率，默认 10 Hz、范围 `(0, 20]`；`matrix_rate` 是五指矩阵合计目标帧率，默认 5 帧/秒、范围 `(0, 10]`，轮询后平均每指约 1 帧/秒，并非每指 5 Hz。真实频率以记录摘要为准；当前矩阵频率不足以完整捕捉每次 `0.15 s` 按压的瞬态变化。串口线程优先处理命令，跳过过期采集周期，不积压补采；已经开始的串口事务无法立即中断。
+
+矩阵采集只切换寄存器 198 的传感器读取通道，沿用设备实际矩阵尺寸，不写尺寸寄存器 199、运动目标或 flash。读取器不另开串口。当前 GUI 仍只显示位置，录制不增加按压力控制或自动力度调节。
+
+采集错误保留错误记录，缺失值不填零。通信故障、数据过期、写盘失败或记录队列溢出会停止后续音符；已有在途命令不能撤销。正常完成、主动停止及可处理的异常退出会排空已接收的记录并更新最终状态；结束时缺少任何命令对应的原始串口写入确认，会标记录制失败、不完整。强制杀进程或掉电不能保证尾部数据落盘。遇到不可用的寄存器或矩阵时，会在起始阶段拒绝演奏，需先核对设备支持情况。
+
+首次真机验收应先验证采集本身和原始数据变化，再逐键试验并检查命令确认延迟、实际采样间隔与文件完整性；软件假驱动测试不代表物理传感器已验证。
+
 ### 调整姿态与重新标定
 
 1. 先远离琴键，用设备实际支持的工具确认低速和输出约束，核对运动方向。仓内调试 GUI 和 ROS 播放器都只发位置，`JointState.velocity/effort` 不提供限速或限力；若使用直接占用串口的厂商工具，完成设置后关闭它，再启动仓内 GUI。
@@ -501,7 +549,7 @@ ros2 launch rm_piano_player rm_75_dual_l20_piano_mujoco.launch.py \
 
 此入口已包含 MuJoCo 场景，使用前停止单独运行的场景入口，避免重复启动控制器。仿真使用 [piano_midi_sim.yaml](../src/ros2_rm_robot/rm_piano_player/config/piano_midi_sim.yaml)，并从场景配置生成 52 白键、36 黑键对应的位置表。确认坐标与单键动作后才使用 `execute:=true`；`tempo_scale` 是时间倍率，数值越大播放越慢。
 
-数字钢琴反馈通过 `midi_input:=<端口名称>`、`feedback_enabled:=true` 启用，默认时间容差 `feedback_tolerance_sec:=0.15`。反馈状态发布到 `/robopianist/feedback_status`；发现漏键、错键或超时后停止后续动作。实现与参数见 [MIDI 播放器说明](../src/ros2_rm_robot/rm_piano_player/README_CN.md)。
+数字钢琴反馈通过 `midi_input:=/dev/snd/midiC2D0`、`feedback_enabled:=true` 启用，默认时间容差 `feedback_tolerance_sec:=0.15`。反馈状态发布到 `/robopianist/feedback_status`；发现漏键、错键或超时后停止后续动作。实现与参数见 [MIDI 播放器说明](../src/ros2_rm_robot/rm_piano_player/README_CN.md)。
 
 ### 完整真机入口
 
@@ -635,6 +683,10 @@ colcon test-result --test-result-base build/rm_75_config --verbose
 - 键位表提供键面坐标，播放器仍使用机械臂工具端目标；完整曲目执行尚未验证。
 - 场景使用重力补偿近似位置伺服保持，不代表真实电机力矩验证。
 - SIGINT 后控制器已停用，但系统安装的 `ros2_control_node`、`move_group` 仍有 ROS 对象析构段错误；运行测试通过不代表退出路径无错误。
-- 右手已完成一次真机指令播放；尚未完成机械臂真机运动验收、单手听音验收、真实 MIDI 按键闭环或官方 RoboPianist RL 策略迁移；同手多指和弦、力反馈和接触奖励属于后续阶段。
+- 右手已完成一次真机指令播放；尚未完成机械臂真机运动验收、单手听音验收、真实 MIDI 按键闭环或官方 RoboPianist RL 策略迁移；同手多指和弦、力反馈闭环控制和接触奖励属于后续阶段。原始传感数据采集及录制的真机频率、有效性仍待验证。
 
 快速启动见[根目录 README](../README.md)；协议、实现和完整参数请继续查看各功能包的 README。
+
+### 准备手势到欢乐颂同步录制
+
+完整顺序和可复制命令见[欢乐颂操作流程](piano_workflow.md)。普通 `l20_right_hand_piano.launch.py` 现在支持 `record:=true midi_input:=/dev/snd/midiC2D0`，将实际 MIDI 事件与压力、触觉保存在同一会话，结束时输出 `performance.mid`。路径须用 `--list-midi-inputs` 重新核对。省略 MIDI 输入仍只录手部数据。MIDI 录制不进行错音判定或力度闭环控制。
