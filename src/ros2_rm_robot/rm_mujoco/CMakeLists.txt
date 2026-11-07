@@ -52,6 +52,7 @@ if(BUILD_TESTING)
   ament_add_pytest_test(model_stability test/test_model_stability.py TIMEOUT 60)
   ament_add_pytest_test(piano_scene test/test_scene.py TIMEOUT 60)
   ament_add_pytest_test(key_events test/test_key_events.py TIMEOUT 60)
+  ament_add_pytest_test(pig_score test/test_pig_score.py TIMEOUT 60)
 endif()
 
 ament_package()

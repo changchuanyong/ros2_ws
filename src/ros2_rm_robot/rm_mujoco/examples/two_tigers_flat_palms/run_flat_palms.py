@@ -31,6 +31,8 @@ parser.add_argument("--key-press-deg", type=float,
                     help="count a key pressed within this many degrees of full travel")
 parser.add_argument("--key-release-deg", type=float,
                     help="release a key once it falls this many degrees below full travel")
+parser.add_argument("--allow-alternate-fingering", action="store_true",
+                    help="retry thumb notes as index or middle when the fingering fails")
 parser.add_argument("--ros-events", action="store_true", help="publish actual key edges to ROS 2")
 args = parser.parse_args()
 if not math.isfinite(args.tempo_scale) or args.tempo_scale <= 0:
@@ -552,7 +554,9 @@ def run_note_probes(allow_alternate, already=None):
 original_fingering=dict(fingering)
 first,original_results=run_note_probes(False)
 right_note_count = len(assignments["right"])
-second,alternate_results=run_note_probes(True,first) if args.score is None and len(first)!=right_note_count else (first,{})
+second,alternate_results=run_note_probes(
+    True, first) if ((args.score is None or args.allow_alternate_fingering)
+                     and len(first)!=right_note_count) else (first,{})
 print('COVERAGE',len(first),len(second),'OF',right_note_count,flush=True)
 
 if len(second)!=right_note_count:
@@ -645,6 +649,18 @@ for note in assignments["left"]:
     if score_by_hand is None:
         fingering[note]=('D','index')
     cand=next(left_pose_candidates(note,[old_ready[leftqa]]),None)
+    if cand is None and args.allow_alternate_fingering:
+        original=fingering[note]
+        for letter,finger in (("D","index"),("E","middle"),("F","ring"),("C","thumb")):
+            if (letter,finger)==original:
+                continue
+            fingering[note]=(letter,finger)
+            cand=next(left_pose_candidates(note,[old_ready[leftqa]]),None)
+            if cand is not None:
+                print('REFINGER LEFT',note,finger,flush=True)
+                break
+        if cand is None:
+            fingering[note]=original
     assert cand is not None,f'Flat left blocked {note}'
     left_plans[note]=cand
     print('FLAT LEFT',note,cand[0],flush=True)
