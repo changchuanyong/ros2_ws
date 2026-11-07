@@ -12,7 +12,7 @@ import zlib
 
 import yaml
 
-from .keyboard import KEY_NOTES, key_joint_name
+from .keyboard import KEY_NOTES, key_joint_name, key_site_name
 
 
 WHITE_CLASSES = frozenset((0, 2, 4, 5, 7, 9, 11))
@@ -22,12 +22,23 @@ COLORS = {
     "scene_metal": (0.26, 0.28, 0.29, 1.0),
     "scene_silver": (0.62, 0.65, 0.67, 1.0),
     "scene_ivory": (0.95, 0.94, 0.89, 1.0),
+    "scene_ebony": (0.018, 0.020, 0.024, 1.0),
+    "scene_felt": (0.32, 0.035, 0.045, 1.0),
     "scene_black": (0.025, 0.028, 0.032, 1.0),
     "scene_floor": (0.44, 0.46, 0.46, 1.0),
     "scene_wall": (0.77, 0.78, 0.75, 1.0),
     "scene_glass": (0.48, 0.68, 0.78, 1.0),
     "scene_brass": (0.68, 0.56, 0.27, 1.0),
 }
+# Specular/sheen per material; glossy ebony and satin ivory read as real key tops.
+GLOSS = {
+    "scene_ivory": ("0.28", "0.45"),
+    "scene_ebony": ("0.55", "0.85"),
+    "scene_felt": ("0.02", "0.05"),
+}
+# Key masses in kg, matching RoboPianist's piano_constants.py (40/20 g).
+WHITE_KEY_MASS = 0.040
+BLACK_KEY_MASS = 0.020
 
 
 def _numbers(values):
@@ -57,6 +68,8 @@ def load_layout(path):
         raise ValueError("Black keys must be narrower than a white-key pitch")
     if keys["black_depth"] >= keys["white_depth"]:
         raise ValueError("Black keys must be shorter than white keys")
+    if keys["black_body_height"] <= keys["black_height"]:
+        raise ValueError("Black key bodies must reach below their top surface")
     if layout["piano"]["width"] <= 52 * keys["white_pitch"] + 0.06:
         raise ValueError("Piano case is too narrow for 52 white keys")
     return layout
@@ -81,9 +94,9 @@ def key_positions(layout):
     return positions
 
 
-def _box(name, position, size, material, collision=True, rpy=None):
+def _box(name, position, size, material, collision=True, rpy=None, mass=None):
     return {"name": name, "position": position, "size": size, "material": material,
-            "collision": collision, "rpy": rpy or [0.0, 0.0, 0.0]}
+            "collision": collision, "rpy": rpy or [0.0, 0.0, 0.0], "mass": mass}
 
 
 def environment_geometry(layout):
@@ -113,13 +126,18 @@ def environment_geometry(layout):
     width, depth = layout["piano"]["width"], layout["piano"]["depth"]
 
     def piano_box(name, position, size, material="scene_piano_wood", collision=True,
-                  rpy=None):
+                  rpy=None, mass=None):
         world = [position[0] + px, position[1] + py, position[2] + pz]
-        parts.append(_box(name, world, size, material, collision, rpy))
+        parts.append(_box(name, world, size, material, collision, rpy, mass))
 
+    # The keybed is wood with a red front-rail felt: a black shelf under the keys made
+    # the keyboard look like loose tiles on a tray.
     inner_width = width - 0.072
-    piano_box("piano_keybed", [0, 0.070, -0.028], [inner_width, 0.22, 0.032], "scene_black")
-    piano_box("piano_front_rail", [0, -0.032, -0.049], [inner_width, 0.018, 0.065])
+    piano_box("piano_keybed", [0, 0.070, -0.040], [inner_width, 0.22, 0.032],
+              "scene_piano_wood")
+    piano_box("piano_front_rail", [0, -0.032, -0.0465], [inner_width, 0.018, 0.065])
+    piano_box("piano_felt", [0, -0.002, -0.0225], [inner_width - 0.02, 0.004, 0.003],
+              "scene_felt", False)
     piano_box("piano_rear_deck", [0, (0.15 + depth - 0.04) / 2, 0.020],
               [inner_width, depth - 0.19, 0.044])
     piano_box("piano_back_rail", [0, depth - 0.048, -0.025], [inner_width, 0.016, 0.13])
@@ -143,30 +161,40 @@ def environment_geometry(layout):
 
     keys = layout["keyboard"]
     pitch, gap = keys["white_pitch"], keys["gap"]
-    front_depth = keys["white_depth"] - keys["black_depth"]
+    thickness = keys["white_thickness"]
+    black_depth = keys["black_depth"]
+    front_depth = keys["white_depth"] - black_depth
     white_index = 0
     for note, point in zip(KEY_NOTES, key_positions(layout)):
         if note % 12 not in WHITE_CLASSES:
+            # A tall body reaches down into the keybed, so a pressed white key never
+            # reveals a black key floating above it.
             piano_box(f"piano_key_{note:03d}",
-                      [point[0], point[1], keys["black_height"] - keys["white_thickness"] / 2],
-                      [keys["black_width"], keys["black_depth"] - gap,
-                       keys["white_thickness"]], "scene_black")
+                      [point[0], point[1],
+                       keys["black_height"] - keys["black_body_height"] / 2],
+                      [keys["black_width"], black_depth, keys["black_body_height"]],
+                      "scene_ebony", True, None, BLACK_KEY_MASS)
             continue
         x = (white_index - 25.5) * pitch
         white_index += 1
-        piano_box(f"piano_key_{note:03d}", [x, front_depth / 2, -keys["white_thickness"] / 2],
-                  [pitch - gap, front_depth - gap, keys["white_thickness"]], "scene_ivory")
         left = x - (pitch - gap) / 2
         right = x + (pitch - gap) / 2
+        # The notch clears the black key by one key gap instead of touching it.
         if note > 21 and (note - 1) % 12 not in WHITE_CLASSES:
-            left += keys["black_width"] / 2
+            left += (keys["black_width"] + gap) / 2
         if note < 108 and (note + 1) % 12 not in WHITE_CLASSES:
-            right -= keys["black_width"] / 2
+            right -= (keys["black_width"] + gap) / 2
+        front_volume = (pitch - gap) * front_depth * thickness
+        rear_volume = (right - left) * black_depth * thickness
+        front_mass = WHITE_KEY_MASS * front_volume / (front_volume + rear_volume)
+        # Front and rear sections abut at the black-key line: no slot across the key top.
+        piano_box(f"piano_key_{note:03d}", [x, front_depth / 2, -thickness / 2],
+                  [pitch - gap, front_depth, thickness], "scene_ivory", True, None,
+                  front_mass)
         piano_box(f"piano_key_{note:03d}_rear",
-                  [(left + right) / 2, front_depth + keys["black_depth"] / 2,
-                   -keys["white_thickness"] / 2],
-                  [right - left, keys["black_depth"] - gap, keys["white_thickness"]],
-                  "scene_ivory")
+                  [(left + right) / 2, front_depth + black_depth / 2, -thickness / 2],
+                  [right - left, black_depth, thickness], "scene_ivory", True, None,
+                  WHITE_KEY_MASS - front_mass)
 
     if layout.get("background", {}).get("enabled", True):
         parts.append(_box("lab_back_wall", [0, 2.05, 1.6], [5.5, 0.08, 3.2], "scene_wall"))
@@ -230,6 +258,8 @@ def build_model(template_path, layout, output_dir, *, movable_keys=False):
     output_dir = Path(output_dir).resolve()
     output_dir.mkdir(parents=True, exist_ok=True)
     root = ET.parse(template_path).getroot()
+    option = root.find("option")
+    timestep = float(option.get("timestep", 0.002)) if option is not None else 0.002
     compiler = root.find("compiler")
     compiler.set("meshdir", str((template_path.parent / compiler.get("meshdir", ".")).resolve()))
     asset = root.find("asset")
@@ -239,7 +269,9 @@ def build_model(template_path, layout, output_dir, *, movable_keys=False):
     ET.SubElement(asset, "texture", name="scene_sky", type="skybox", builtin="gradient",
                   rgb1="0.66 0.77 0.85", rgb2="0.91 0.93 0.94", width="256", height="1536")
     for name, color in COLORS.items():
-        attributes = {"name": name, "rgba": _numbers(color), "specular": "0.18", "shininess": "0.2"}
+        specular, shininess = GLOSS.get(name, ("0.18", "0.2"))
+        attributes = {"name": name, "rgba": _numbers(color),
+                      "specular": specular, "shininess": shininess}
         if name in ("scene_oak", "scene_piano_wood"):
             attributes.update(texture="scene_wood_texture", texrepeat="1 3", texuniform="true",
                               rgba="1 1 1 1" if name == "scene_oak" else "0.88 0.78 0.68 1")
@@ -270,11 +302,6 @@ def build_model(template_path, layout, output_dir, *, movable_keys=False):
         # Without this, the photo's bent arms sag several degrees under the hand load.
         for body in base.iter("body"):
             body.set("gravcomp", "1")
-        if movable_keys:
-            # Bit 2 lets moving keys touch robot collision geoms, but not the case or other keys.
-            for geom in base.iter("geom"):
-                if int(geom.get("contype", "1")) & 1:
-                    geom.set("contype", "3")
         base.set("pos", _numbers(layout["bases"][side]["position"]))
         # MuJoCo's lowercase xyz Euler convention differs from URDF fixed-axis RPY.
         base.attrib.pop("euler", None)
@@ -289,28 +316,31 @@ def build_model(template_path, layout, output_dir, *, movable_keys=False):
     ET.SubElement(environment, "site", name="piano_frame", type="sphere", size="0.002",
                   pos=_numbers(layout["piano_frame"]["position"]), rgba="0 0 0 0")
     key_bodies = {}
-    rest_positions = key_positions(layout) if movable_keys else []
+    rest_positions = key_positions(layout)
+    key_depth = layout["keyboard"]["white_depth"]
+    frame = layout["piano_frame"]["position"]
     for part in environment_geometry(layout):
         name = part["name"]
         position = part["position"]
-        collision = "1" if part["collision"] else "0"
+        # RoboPianist's piano uses contype=0/conaffinity=1, so keys never collide with
+        # each other or the case, while the default robot geoms (1/1) still touch them.
         attributes = {"name": name, "type": "box",
                       "size": _numbers(value / 2 for value in part["size"]),
                       "euler": _numbers(part["rpy"]), "material": part["material"],
-                      "contype": collision, "conaffinity": collision}
+                      "contype": "0", "conaffinity": "1" if part["collision"] else "0"}
+        if part["mass"] is not None:
+            attributes["mass"] = _numbers([part["mass"]])
         parent = environment
         if movable_keys and name.startswith("piano_key_"):
             note = int(name.split("_")[2])
             if note not in key_bodies:
-                px, py, pz = layout["piano_frame"]["position"]
                 key_x, _, key_z = rest_positions[note - KEY_NOTES.start]
-                depth = layout["keyboard"]["white_depth"]
                 white = note % 12 in WHITE_CLASSES
-                lever = depth if white else layout["keyboard"]["black_depth"]
+                lever = key_depth if white else layout["keyboard"]["black_depth"]
                 travel = 0.010 if white else 0.008
                 if lever <= travel:
                     raise ValueError("Key depth must exceed the configured key travel")
-                pivot = (px + key_x, py + depth, pz + key_z)
+                pivot = (frame[0] + key_x, frame[1] + key_depth, frame[2] + key_z)
                 body = ET.SubElement(environment, "body", name=f"piano_note_{note:03d}",
                                      pos=_numbers(pivot), gravcomp="1")
                 ET.SubElement(body, "joint", name=key_joint_name(note), type="hinge",
@@ -320,10 +350,20 @@ def build_model(template_path, layout, output_dir, *, movable_keys=False):
                 key_bodies[note] = body, pivot
             parent, pivot = key_bodies[note]
             position = [value - origin for value, origin in zip(position, pivot)]
-            attributes.update(contype="0", conaffinity="2", density="850")
-        elif movable_keys and name == "piano_keybed":
-            position = [position[0], position[1], position[2] - 0.012]
+            attributes["solref"] = _numbers((2 * timestep, 1))
         ET.SubElement(parent, "geom", pos=_numbers(position), **attributes)
+    # One RoboPianist-style site per key: the press point on the key surface, carried by
+    # the key body so it follows a moving key. Invisible; use it for targets or rewards.
+    for note in KEY_NOTES:
+        dx, dy, dz = rest_positions[note - KEY_NOTES.start]
+        if movable_keys:
+            parent, _ = key_bodies[note]
+            site_pos = (0.0, dy - key_depth, 0.0)
+        else:
+            parent = environment
+            site_pos = (frame[0] + dx, frame[1] + dy, frame[2] + dz)
+        ET.SubElement(parent, "site", name=key_site_name(note), type="sphere",
+                      size="0.002", pos=_numbers(site_pos), group="4", rgba="0 0 0 0")
     visual = root.find("visual")
     headlight = visual.find("headlight")
     headlight.set("diffuse", "0.35 0.35 0.35")

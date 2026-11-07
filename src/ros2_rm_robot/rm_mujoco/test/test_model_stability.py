@@ -13,7 +13,7 @@ PACKAGE = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(PACKAGE))
 
 from rm_mujoco.scene import build_model, load_layout  # noqa: E402
-from rm_mujoco.keyboard import KEY_NOTES, KeyEvents, key_joint_name  # noqa: E402
+from rm_mujoco.keyboard import KEY_NOTES, KeyEvents, key_joint_name, key_site_name  # noqa: E402
 
 
 @pytest.fixture
@@ -128,3 +128,21 @@ def test_passive_keys_return_and_emit_independent_note_edges(tmp_path):
                      ("on", 73), ("off", 73)]
     assert all(abs(data.qpos[model.joint(key_joint_name(note)).qposadr[0]]) < 0.005
                for note in KEY_NOTES)
+
+
+def test_key_press_sites_ride_on_the_key(tmp_path):
+    layout = load_layout(PACKAGE / "config" / "piano_scene.yaml")
+    path = build_model(PACKAGE / "models" / "rm_75_6fb_v_dual_l20.xml",
+                       layout, tmp_path, movable_keys=True)
+    model = mujoco.MjModel.from_xml_path(str(path))
+    data = mujoco.MjData(model)
+    mujoco.mj_resetDataKeyframe(model, data, model.key("piano_ready").id)
+    mujoco.mj_forward(model, data)
+    assert sum(model.site(i).name.endswith("_site") for i in range(model.nsite)) == 88
+    site = model.site(key_site_name(74)).id
+    rest = data.site_xpos[site].copy()
+    data.qfrc_applied[model.joint(key_joint_name(74)).dofadr[0]] = 0.11
+    for _ in range(round(0.25 / model.opt.timestep)):
+        mujoco.mj_step(model, data)
+    assert data.site_xpos[site, 2] < rest[2] - 0.004
+    assert abs(data.site_xpos[site, 1] - rest[1]) < 0.002

@@ -30,11 +30,15 @@ piano_frame:
 keyboard:
   white_pitch: 0.0236
   white_depth: 0.15
-  white_thickness: 0.012
+  # 22 mm is a real key body height; 12 mm read as loose tiles on the keybed.
+  white_thickness: 0.022
   black_width: 0.0135
   black_depth: 0.085
-  black_height: 0.012
-  gap: 0.0006
+  # Top surface above the white-key top, and the full body height that reaches
+  # down into the keybed so a pressed white key never reveals a floating key.
+  black_height: 0.0125
+  black_body_height: 0.034
+  gap: 0.001
 piano:
   width: 1.40
   depth: 0.44
@@ -49,3 +53,7 @@ cameras:
     position: [0.0, -3.2, 1.9]
     target: [0.0, -0.12, 0.95]
     fovy: 45.0
+  keys:
+    position: [0.02, -0.46, 0.86]
+    target: [0.02, 0.07, 0.742]
+    fovy: 42.0

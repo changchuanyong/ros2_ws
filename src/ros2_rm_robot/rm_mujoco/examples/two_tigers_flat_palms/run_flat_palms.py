@@ -15,10 +15,40 @@ parser.add_argument("--fingering", type=Path, default=Path(__file__).with_name("
 parser.add_argument("--pose-file", type=Path, help="L20 READY and PRESS pose configuration")
 parser.add_argument("--scene-config", type=Path, help="override the MuJoCo scene layout")
 parser.add_argument("--tempo-scale", type=float, default=12.0, help="simulation seconds per score second")
+parser.add_argument("--attack-duration", type=float, default=0.44,
+                    help="seconds for the strike; the key closes on the score grid")
+parser.add_argument("--release-duration", type=float, default=0.38,
+                    help="seconds for the lift-off; the key opens on the score grid")
+parser.add_argument("--transfer-joint-speed", type=float, default=0.16 / 0.30,
+                    help="maximum arm joint speed in rad/s for a level wrist shift")
+parser.add_argument("--transfer-joint-max-shift", type=float, default=0.16,
+                    help="largest arm joint shift in rad a level wrist shift may cover")
+parser.add_argument("--level-shift-min-time", type=float, default=0.30,
+                    help="minimum seconds a level wrist shift is allowed to take")
+parser.add_argument("--contact-offset", action="append", default=[], metavar="NOTE:METERS",
+                    help="shift a key's IK contact point along the keyboard axis")
+parser.add_argument("--key-press-deg", type=float,
+                    help="count a key pressed within this many degrees of full travel")
+parser.add_argument("--key-release-deg", type=float,
+                    help="release a key once it falls this many degrees below full travel")
 parser.add_argument("--ros-events", action="store_true", help="publish actual key edges to ROS 2")
 args = parser.parse_args()
 if not math.isfinite(args.tempo_scale) or args.tempo_scale <= 0:
     parser.error("--tempo-scale must be finite and positive")
+if not (math.isfinite(args.attack_duration) and args.attack_duration > 0):
+    parser.error("--attack-duration must be finite and positive")
+if not (math.isfinite(args.release_duration) and args.release_duration > 0):
+    parser.error("--release-duration must be finite and positive")
+if not (math.isfinite(args.transfer_joint_speed) and args.transfer_joint_speed > 0):
+    parser.error("--transfer-joint-speed must be finite and positive")
+if not (math.isfinite(args.transfer_joint_max_shift) and args.transfer_joint_max_shift > 0):
+    parser.error("--transfer-joint-max-shift must be finite and positive")
+if not (math.isfinite(args.level_shift_min_time) and args.level_shift_min_time > 0):
+    parser.error("--level-shift-min-time must be finite and positive")
+if (args.key_press_deg is None) != (args.key_release_deg is None):
+    parser.error("--key-press-deg and --key-release-deg must be given together")
+if args.key_press_deg is not None and not 0 <= args.key_press_deg < args.key_release_deg:
+    parser.error("key thresholds must satisfy 0 <= --key-press-deg < --key-release-deg")
 if args.ros_events and args.score is None:
     parser.error("--ros-events requires --score")
 movable_keys = args.score is not None
@@ -45,6 +75,17 @@ m.mj_resetDataKeyframe(model, d, ready_id)
 m.mj_forward(model, d)
 ready_q, ready_ctrl = d.qpos.copy(), d.ctrl.copy()
 points = np.array(key_positions(layout)) + layout['piano_frame']['position']
+for entry in args.contact_offset:
+    note_text, _, offset_text = entry.partition(":")
+    try:
+        offset_note, offset = int(note_text), float(offset_text)
+    except ValueError:
+        parser.error(f"--contact-offset expects NOTE:METERS, got {entry!r}")
+    if not 21 <= offset_note <= 108:
+        parser.error(f"--contact-offset note {offset_note} is outside 21-108")
+    if not math.isfinite(offset):
+        parser.error(f"--contact-offset for note {offset_note} must be finite")
+    points[offset_note - 21, 0] += offset
 geom_names = [model.geom(i).name or model.body(model.geom_bodyid[i]).name for i in range(model.ngeom)]
 sides = ('left', 'right')
 
@@ -451,7 +492,8 @@ def probe(note,cand,side='right', *, attack=0.55, hold=0.23, release=0.52):
     m.mj_forward(model,sim)
     hits=0
     wrong=set()
-    key_events = KeyEvents(model) if movable_keys else None
+    key_events = (KeyEvents(model, press_deg=args.key_press_deg,
+                            release_deg=args.key_release_deg) if movable_keys else None)
     edges = []
     finger=fingering[note][1]
     def watch(sim):
@@ -745,8 +787,16 @@ def share_wrist(note, anchor, candidate, side, arm):
                            release=RELEASE_DURATION)[0] else None
 
 
-ATTACK_DURATION = 0.44
-RELEASE_DURATION = 0.38
+ATTACK_DURATION = args.attack_duration
+RELEASE_DURATION = args.release_duration
+# Fraction of each move at which the key edge is crossed. The fractions were
+# measured with the original 0.44 s strike and 0.38 s lift-off, so scaling the
+# durations keeps key-on and key-off on the score grid while freeing time for
+# the wrist transfer.
+ATTACK_CONTACT_RATIO = 0.30 / 0.44
+RELEASE_CONTACT_RATIO = 0.18 / 0.38
+# A note counts as matched when its onset and its release both fall in this window.
+TIMING_TOLERANCE_SEC = 0.25
 
 
 def transfer_is_clear(previous, current, transfer, side, note):
@@ -785,16 +835,35 @@ def transfer_between(previous, current, nearby, arm, side, note, available):
     old_hover, old_ready = previous[1], previous[3]
     new_hover, new_ready = current[1], current[3]
     candidates = []
-    if nearby and np.max(np.abs(old_ready[arm] - new_ready[arm])) <= 0.16:
+    delta = float(np.max(np.abs(old_ready[arm] - new_ready[arm])))
+    if nearby:
         level_time = 0.50
         if available <= level_time:
             level_time = available - 4 * model.opt.timestep
-        if level_time >= 0.30:
+        if (level_time >= args.level_shift_min_time
+                and delta <= args.transfer_joint_max_shift
+                and delta <= args.transfer_joint_speed * level_time):
             candidates.append(("level_shift", [(level_time, new_ready)]))
     old_lift = old_ready + 0.40 * (old_hover - old_ready)
     new_lift = new_ready + 0.40 * (new_hover - new_ready)
+    short_lift = [(0.32, old_lift), (0.45, new_lift), (0.42, new_ready)]
+    budget = available - 4 * model.opt.timestep
+    if budget * 0.30 >= 4 * model.opt.timestep and budget < sum(
+            duration for duration, _ in short_lift):
+        # The window is too small for a full lift, so keep the lift-shift-drop
+        # shape and scale it to the window instead of sliding along the keys.
+        candidates.append(("micro_lift", [
+            (budget * 0.30, old_lift),
+            (budget * 0.35, new_lift),
+            (budget * 0.35, new_ready),
+        ]))
+        candidates.append(("micro_lift_full", [
+            (budget * 0.30, old_hover),
+            (budget * 0.35, new_hover),
+            (budget * 0.35, new_ready),
+        ]))
     candidates.extend((
-        ("short_lift", [(0.32, old_lift), (0.45, new_lift), (0.42, new_ready)]),
+        ("short_lift", short_lift),
         ("full_lift", [(0.56, old_hover), (1.10, new_hover), (0.62, new_ready)]),
     ))
     for mode, transfer in candidates:
@@ -811,7 +880,9 @@ def schedule_hand(notes, plans, scale, side):
     arm = leftqa if side == "left" else rightqa
     waypoints = [(0.0, plans[notes[0].note][1])]
     windows = []
-    counts = dict.fromkeys(("repeat", "shared_wrist", "level_shift", "short_lift", "full_lift"), 0)
+    counts = dict.fromkeys(
+        ("repeat", "shared_wrist", "refinger", "level_shift", "micro_lift",
+         "micro_lift_full", "short_lift", "full_lift"), 0)
     shared_cache = {}
     transfer_cache = {}
 
@@ -819,10 +890,31 @@ def schedule_hand(notes, plans, scale, side):
         return abs(first - second) <= 3 and fingering[first] != fingering[second]
 
     def at_wrist(note, anchor):
-        key = note, anchor[3][arm].tobytes()
+        key = note, anchor[3][arm].tobytes(), fingering[note][1]
         if key not in shared_cache:
             shared_cache[key] = share_wrist(note, anchor, plans[note], side, arm)
         return shared_cache[key]
+
+    def share_or_refinger(note, anchor, anchor_note):
+        """Play `note` without moving the arm, re-fingering it when that is what it takes."""
+        if can_share(anchor_note, note) and (shared := at_wrist(note, anchor)) is not None:
+            counts["shared_wrist"] += 1
+            return shared
+        if abs(anchor_note - note) > 3:
+            return None
+        original = fingering[note]
+        used = {original[1], fingering[anchor_note][1]}
+        for letter, finger in (("D", "index"), ("E", "middle"), ("F", "ring"), ("G", "little")):
+            if finger in used:
+                continue
+            fingering[note] = (letter, finger)
+            shared = at_wrist(note, anchor)
+            if shared is not None:
+                counts["refinger"] += 1
+                print(f"REFINGER {anchor_note}->{note} {finger} ok", flush=True)
+                return shared
+        fingering[note] = original
+        return None
 
     def find_transfer(source_note, source, target_note, target, available):
         key = (source_note, target_note, source[3][arm].tobytes(),
@@ -837,17 +929,17 @@ def schedule_hand(notes, plans, scale, side):
     for index, note in enumerate(notes):
         on = 2.20 + note.start * scale
         off = 2.20 + note.end * scale
-        attack_start, release_start = on - 0.30, off - 0.18
+        attack_start = on - ATTACK_CONTACT_RATIO * ATTACK_DURATION
+        release_start = off - RELEASE_CONTACT_RATIO * RELEASE_DURATION
         current = plans[note.note]
         if previous_note == note.note:
             current = previous
             transfer = []
             counts["repeat"] += 1
-        elif previous is not None and can_share(previous_note, note.note) and (
-                shared := at_wrist(note.note, previous)) is not None:
+        elif previous is not None and (
+                shared := share_or_refinger(note.note, previous, previous_note)) is not None:
             current = shared
             transfer = []
-            counts["shared_wrist"] += 1
         else:
             if index + 1 < len(notes):
                 next_note = notes[index + 1].note
@@ -863,9 +955,12 @@ def schedule_hand(notes, plans, scale, side):
                     current = plans[note.note]
                     chosen = find_transfer(previous_note, previous, note.note, current, available)
                 if chosen is None:
+                    delta = float(np.max(np.abs(previous[3][arm] - current[3][arm])))
                     raise ValueError(
                         f"No clear {side} wrist transfer from MIDI note {previous_note} to "
-                        f"{note.note} in {available:.3f}s; check --tempo-scale")
+                        f"{note.note} in {available:.3f}s (arm shift {delta:.3f} rad needs "
+                        f"{delta / args.transfer_joint_speed:.3f}s at "
+                        f"{args.transfer_joint_speed:.2f} rad/s); check --tempo-scale")
                 mode, transfer = chosen
                 counts[mode] += 1
 
@@ -906,7 +1001,8 @@ def play_midi(capture, publish=None):
     sim.ctrl[:] = sim.qpos[qctrl]
     m.mj_forward(model, sim)
 
-    key_events = KeyEvents(model)
+    key_events = KeyEvents(model, press_deg=args.key_press_deg,
+                           release_deg=args.key_release_deg)
     edges, raw_contacts, bad = [], [], set()
     active = set()
     waypoint_index = dict.fromkeys(sides, 0)
@@ -971,20 +1067,36 @@ def play_midi(capture, publish=None):
             start = pressed.pop(note)
             queues[side_by_note[note]].append((start, note, time - start))
     timing = {}
+    key_press = {"expected": 0, "observed": 0, "matched": 0, "sequence_mismatch": False}
     ok = not pressed
     for side, (_, windows) in schedules.items():
         queues[side].sort()
         played = queues[side]
+        key_press["expected"] += len(windows)
+        key_press["observed"] += len(played)
         if [note for _, note, _ in played] != [note for _, _, note, _, _ in windows]:
             ok = False
+            key_press["sequence_mismatch"] = True
             continue
-        onset_error = max(abs(start - on) for (start, _, _), (_, _, _, on, _) in zip(played, windows))
+        pairs = list(zip(played, windows))
+        # A press only counts as a hit when its onset lands in the score window;
+        # the release timing is checked separately by `ok`.
+        key_press["matched"] += sum(
+            1 for (start, _, _), (_, _, _, on, _) in pairs
+            if abs(start - on) <= TIMING_TOLERANCE_SEC)
+        onset_error = max(abs(start - on) for (start, _, _), (_, _, _, on, _) in pairs)
         release_error = max(abs(start + duration - off)
-                            for (start, _, duration), (_, _, _, _, off) in zip(played, windows))
+                            for (start, _, duration), (_, _, _, _, off) in pairs)
         timing[side] = {"max_onset_error_sec": onset_error, "max_release_error_sec": release_error}
-        ok = ok and max(onset_error, release_error) <= 0.25
+        ok = ok and max(onset_error, release_error) <= TIMING_TOLERANCE_SEC
+    expected, observed, matched = (key_press[name] for name in ("expected", "observed", "matched"))
+    precision = matched / observed if observed else 1.0
+    recall = matched / expected if expected else 1.0
+    key_press.update(
+        precision=precision, recall=recall,
+        f1=2 * precision * recall / (precision + recall) if precision + recall else 0.0)
     (output / "key_events.json").write_text(json.dumps(edges), encoding="utf-8")
-    return ok, queues, raw_contacts, bad, sim.time, timing, len(edges), transitions
+    return (ok, queues, raw_contacts, bad, sim.time, timing, len(edges), transitions, key_press)
 
 
 def play_ros_midi(capture):
@@ -1018,6 +1130,7 @@ report={'song':args.score.stem if args.score else 'Two Tigers',
         'left_hand':'Original right READY/PRESS_D values applied to left simulation joints',
         'start_state':'Both arms initialized in validated flat-palm playing poses',
         'strike':'Wrist targets fixed during READY to PRESS and PRESS to READY',
+        'contact_offset':args.contact_offset,
         'right_fingering':fingering}
 palm_tilt={side:0.0 for side in sides}
 
@@ -1039,18 +1152,23 @@ def capture(sim):
     if sim.time+1e-9>=next_frame:
         frames.append(sim.qpos.copy())
         next_frame+=speed/fps
+key_press = None
 if args.score is None:
     events,bad,expected,duration=full_song(second,beat_sec,capture)
     ok,queues=compare(events,expected)
 else:
     play = play_ros_midi if args.ros_events else play_midi
-    ok, queues, events, bad, duration, timing, edge_count, transitions = play(capture)
+    ok, queues, events, bad, duration, timing, edge_count, transitions, key_press = play(capture)
+    # A null key_activation_deg means the default fraction thresholds were used.
     report.update(timing=timing, key_state_transitions=edge_count, wrist_transitions=transitions,
-                  event_source="passive key joint angles", timing_tolerance_sec=0.25)
+                  key_activation_deg={"press": args.key_press_deg,
+                                      "release": args.key_release_deg},
+                  event_source="passive key joint angles",
+                  timing_tolerance_sec=TIMING_TOLERANCE_SEC)
 print('RESULT',ok,'BAD',len(bad),sorted(bad,key=str)[:12],
       'RAW',len(events),'DURATION',round(duration,3),flush=True)
 report.update(palm_tilt_max_degrees=palm_tilt,sim_seconds=round(duration,3),video_speed=speed,frames=len(frames),
-    matched_note_ons_and_releases={side:len(queues[side]) for side in sides},
+    matched_note_ons_and_releases={side:len(queues[side]) for side in sides}, key_press=key_press,
     unexpected_contacts=sorted(bad,key=str),raw_contact_transitions=len(events),passed=ok and not bad,
     observed={side:[{'time_sec':float(start),'duration_sec':float(length),'note':note}
                   for start,note,length in queues[side]] for side in sides})

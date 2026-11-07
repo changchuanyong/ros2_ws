@@ -65,6 +65,17 @@ def test_press_points_match_the_generated_key_surfaces(layout, tmp_path, transla
             assert center[axis] - half_size[axis] < target[axis] < center[axis] + half_size[axis]
 
 
+def test_movable_keys_use_hardened_contacts(layout, tmp_path):
+    output = build_model(PACKAGE / "models" / "rm_75_6fb_v_dual_l20.xml", layout, tmp_path,
+                         movable_keys=True)
+    mjcf = ET.parse(output).getroot()
+    for note in (21, 22, 72):
+        geom = mjcf.find(f".//geom[@name='piano_key_{note:03d}']")
+        assert geom is not None
+        # RoboPianist hardens key contacts to 2x the physics timestep.
+        assert [float(value) for value in geom.get("solref").split()] == pytest.approx([0.004, 1.0])
+
+
 def test_key_solids_do_not_overlap(layout):
     keys = [part for part in environment_geometry(layout) if part["name"].startswith("piano_key_")]
     assert len(keys) == 140  # 52 split whites and 36 blacks.
@@ -77,6 +88,74 @@ def test_key_solids_do_not_overlap(layout):
             # Raised black keys must fit between the white-key rear sections,
             # rather than hide overlapping rectangles at a different height.
             assert not all(overlap[:2]), (first["name"], second["name"])
+
+
+def test_every_key_has_a_press_site(layout, tmp_path):
+    output = build_model(PACKAGE / "models" / "rm_75_6fb_v_dual_l20.xml", layout, tmp_path)
+    mjcf = ET.parse(output).getroot()
+    frame = layout["piano_frame"]["position"]
+    for note, point in enumerate(key_positions(layout), start=21):
+        site = mjcf.find(f".//site[@name='piano_key_{note:03d}_site']")
+        assert site is not None
+        assert [float(value) for value in site.get("pos").split()] == pytest.approx(
+            [frame[axis] + point[axis] for axis in range(3)])
+
+
+def test_movable_key_sites_ride_on_their_key_body(layout, tmp_path):
+    output = build_model(PACKAGE / "models" / "rm_75_6fb_v_dual_l20.xml", layout, tmp_path,
+                         movable_keys=True)
+    mjcf = ET.parse(output).getroot()
+    depth = layout["keyboard"]["white_depth"]
+    for note, point in enumerate(key_positions(layout), start=21):
+        body = mjcf.find(f".//body[@name='piano_note_{note:03d}']")
+        assert body is not None
+        site = body.find(f"site[@name='piano_key_{note:03d}_site']")
+        assert site is not None
+        assert [float(value) for value in site.get("pos").split()] == pytest.approx(
+            [0.0, point[1] - depth, 0.0])
+
+
+def test_keys_are_solid_blocks_with_embedded_black_keys(layout):
+    keys = {part["name"]: part for part in environment_geometry(layout)
+            if part["name"].startswith("piano_key_")}
+    keyboard = layout["keyboard"]
+    surface = layout["piano_frame"]["position"][2]
+    white = keys["piano_key_074"]
+    assert white["size"][2] == pytest.approx(keyboard["white_thickness"])
+    assert white["position"][2] + white["size"][2] / 2 == pytest.approx(surface)
+    # Front and rear sections share one plane, so no slot runs across the key top.
+    front_line = keyboard["white_depth"] - keyboard["black_depth"]
+    assert white["position"][1] + white["size"][1] / 2 == pytest.approx(front_line)
+    rear = keys["piano_key_074_rear"]
+    assert rear["position"][1] - rear["size"][1] / 2 == pytest.approx(front_line)
+    black = keys["piano_key_073"]
+    assert black["position"][2] + black["size"][2] / 2 == pytest.approx(
+        surface + keyboard["black_height"])
+    # The black key body must reach below the white-key top instead of resting on it.
+    assert black["position"][2] - black["size"][2] / 2 < surface
+
+
+def test_key_masses_match_robopianist_constants(layout):
+    keys = {part["name"]: part for part in environment_geometry(layout)
+            if part["name"].startswith("piano_key_")}
+    assert keys["piano_key_074"]["mass"] + keys["piano_key_074_rear"]["mass"] == \
+        pytest.approx(0.040)
+    assert keys["piano_key_073"]["mass"] == pytest.approx(0.020)
+
+
+def test_piano_geoms_use_robopianist_collision_filter(layout, tmp_path):
+    output = build_model(PACKAGE / "models" / "rm_75_6fb_v_dual_l20.xml", layout, tmp_path,
+                         movable_keys=True)
+    mjcf = ET.parse(output).getroot()
+    for part in environment_geometry(layout):
+        geom = mjcf.find(f".//geom[@name='{part['name']}']")
+        assert geom is not None
+        assert geom.get("contype") == "0"
+        assert geom.get("conaffinity") == ("1" if part["collision"] else "0")
+    # Keys must reach the hand through the default 1/1 robot mask, not by editing it.
+    for side in ("left", "right"):
+        base = mjcf.find(f"worldbody/body[@name='{side}_base_link']")
+        assert all(geom.get("contype") != "3" for geom in base.iter("geom"))
 
 
 def test_table_mounts_and_piano_have_clearance(layout):

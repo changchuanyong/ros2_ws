@@ -51,6 +51,7 @@ if(BUILD_TESTING)
   find_package(ament_cmake_pytest REQUIRED)
   ament_add_pytest_test(model_stability test/test_model_stability.py TIMEOUT 60)
   ament_add_pytest_test(piano_scene test/test_scene.py TIMEOUT 60)
+  ament_add_pytest_test(key_events test/test_key_events.py TIMEOUT 60)
 endif()
 
 ament_package()

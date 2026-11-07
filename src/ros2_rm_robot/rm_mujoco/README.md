@@ -20,10 +20,11 @@ SSH 中检查控制器使用 `headless:=true use_rviz:=false`。离屏渲染不�
 ```bash
 MUJOCO_GL=egl python3 -m rm_mujoco.render --output /tmp/piano_scene.png
 MUJOCO_GL=egl python3 -m rm_mujoco.render --camera front --output /tmp/piano_front.png
+MUJOCO_GL=egl python3 -m rm_mujoco.render --press-notes 60,61,64,67 --output /tmp/piano_pressed.png
 ```
 
-交互窗口默认聚焦桌琴区域，另有 `overview` 和 `front` 固定相机。
-这两个观察相机不自动发布 ROS 图像流，避免无头运行时额外启动 EGL 相机线程。
+交互窗口默认聚焦桌琴区域，另有 `overview`、`front` 和 `keys` 固定相机。
+这些观察相机不自动发布 ROS 图像流，避免无头运行时额外启动 EGL 相机线程。
 
 ## 调整尺寸
 
@@ -37,7 +38,8 @@ y 从机械臂朝向钢琴、z 向上；尺寸单位为米，关节角为弧度�
 | 两臂底座 | x=±0.32、y=-0.28、z=0.76 m，直立安装 |
 | 白键表面 | z=0.74 m |
 | 白键宽度节距 | 23.6 mm |
-| 黑键高度 | 高出白键 12 mm |
+| 白键厚度 | 22 mm，键间 1 mm 缝 |
+| 黑键高度 | 顶面高出白键 12.5 mm，键体嵌入白键顶面以下 |
 
 这些数值是照片布局的近似值，不是实机测量结果。改变桌高/底座位置后应同步
 调整 `initial_positions` 并重新检查可达性和碰撞；姿态不会自动求逆运动学。
@@ -66,6 +68,15 @@ ros2 launch rm_piano_player rm_75_dual_l20_piano_mujoco.launch.py \
 默认 MoveIt 场景用固定琴键规划双臂。平掌演奏入口用同一布局生成 88 个被动
 铰链琴键，由指尖压下并由弹簧回位。白键的前后两段随同一个铰链运动。
 MIDI 按下和松开事件由琴键角度触发，指尖接触另外记录。
+琴键质量按 RoboPianist 取白键 40 g、黑键 20 g；钢琴 geom 统一用
+`contype=0`、`conaffinity=1`，琴键之间及琴键与琴体之间不产生接触，机械臂和
+手部默认的 1/1 geom 仍能触键，不再改写机械臂的 `contype`。
+
+每个琴键另有一个不可见 site（`piano_key_<MIDI>_site`，group 4），位于琴键
+表面的按压点并随琴键一起运动，可用于指尖目标或接触奖励。`KeyHighlight` 按
+RoboPianist 的做法把按下的琴键染成绿色，未按下的键恢复模型编译时的颜色；
+`--press-notes` 会生成被动铰链琴键场景、用固定测试力矩压下这些键再渲染，
+展示下键、变色和 site 跟随，不代表标定过的指尖力。
 
 从工作空间根目录运行独立仿真，使用能导入 MuJoCo、NumPy 和 PyYAML 的 Python：
 
