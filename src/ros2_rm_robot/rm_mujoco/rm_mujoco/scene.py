@@ -1,7 +1,7 @@
 """Generate the same approximate table/piano layout for MuJoCo and MoveIt.
 
 The dimensions are an editable visual approximation of the reference photo.
-Keys are fixed geometry in this phase; they do not produce MIDI/contact events.
+The MuJoCo scene can generate passive keys using the same rest geometry.
 """
 
 import math
@@ -11,6 +11,8 @@ import xml.etree.ElementTree as ET
 import zlib
 
 import yaml
+
+from .keyboard import KEY_NOTES, key_joint_name
 
 
 WHITE_CLASSES = frozenset((0, 2, 4, 5, 7, 9, 11))
@@ -66,7 +68,7 @@ def key_positions(layout):
     pitch = keyboard["white_pitch"]
     white_index = 0
     positions = []
-    for note in range(21, 109):
+    for note in KEY_NOTES:
         if note % 12 in WHITE_CLASSES:
             positions.append([(white_index - 25.5) * pitch,
                               (keyboard["white_depth"] - keyboard["black_depth"]) * 0.65,
@@ -143,7 +145,7 @@ def environment_geometry(layout):
     pitch, gap = keys["white_pitch"], keys["gap"]
     front_depth = keys["white_depth"] - keys["black_depth"]
     white_index = 0
-    for note, point in zip(range(21, 109), key_positions(layout)):
+    for note, point in zip(KEY_NOTES, key_positions(layout)):
         if note % 12 not in WHITE_CLASSES:
             piano_box(f"piano_key_{note:03d}",
                       [point[0], point[1], keys["black_height"] - keys["white_thickness"] / 2],
@@ -222,7 +224,7 @@ def _camera_axes(position, target):
     return x_axis + y_axis
 
 
-def build_model(template_path, layout, output_dir):
+def build_model(template_path, layout, output_dir, *, movable_keys=False):
     """Generate an MJCF beside its texture, preserving source robot dynamics."""
     template_path = Path(template_path).resolve()
     output_dir = Path(output_dir).resolve()
@@ -268,6 +270,11 @@ def build_model(template_path, layout, output_dir):
         # Without this, the photo's bent arms sag several degrees under the hand load.
         for body in base.iter("body"):
             body.set("gravcomp", "1")
+        if movable_keys:
+            # Bit 2 lets moving keys touch robot collision geoms, but not the case or other keys.
+            for geom in base.iter("geom"):
+                if int(geom.get("contype", "1")) & 1:
+                    geom.set("contype", "3")
         base.set("pos", _numbers(layout["bases"][side]["position"]))
         # MuJoCo's lowercase xyz Euler convention differs from URDF fixed-axis RPY.
         base.attrib.pop("euler", None)
@@ -281,12 +288,42 @@ def build_model(template_path, layout, output_dir):
     environment = ET.SubElement(world, "body", name="piano_environment")
     ET.SubElement(environment, "site", name="piano_frame", type="sphere", size="0.002",
                   pos=_numbers(layout["piano_frame"]["position"]), rgba="0 0 0 0")
+    key_bodies = {}
+    rest_positions = key_positions(layout) if movable_keys else []
     for part in environment_geometry(layout):
-        ET.SubElement(environment, "geom", name=part["name"], type="box",
-                      pos=_numbers(part["position"]), size=_numbers(value / 2 for value in part["size"]),
-                      euler=_numbers(part["rpy"]), material=part["material"],
-                      contype="1" if part["collision"] else "0",
-                      conaffinity="1" if part["collision"] else "0")
+        name = part["name"]
+        position = part["position"]
+        collision = "1" if part["collision"] else "0"
+        attributes = {"name": name, "type": "box",
+                      "size": _numbers(value / 2 for value in part["size"]),
+                      "euler": _numbers(part["rpy"]), "material": part["material"],
+                      "contype": collision, "conaffinity": collision}
+        parent = environment
+        if movable_keys and name.startswith("piano_key_"):
+            note = int(name.split("_")[2])
+            if note not in key_bodies:
+                px, py, pz = layout["piano_frame"]["position"]
+                key_x, _, key_z = rest_positions[note - KEY_NOTES.start]
+                depth = layout["keyboard"]["white_depth"]
+                white = note % 12 in WHITE_CLASSES
+                lever = depth if white else layout["keyboard"]["black_depth"]
+                travel = 0.010 if white else 0.008
+                if lever <= travel:
+                    raise ValueError("Key depth must exceed the configured key travel")
+                pivot = (px + key_x, py + depth, pz + key_z)
+                body = ET.SubElement(environment, "body", name=f"piano_note_{note:03d}",
+                                     pos=_numbers(pivot), gravcomp="1")
+                ET.SubElement(body, "joint", name=key_joint_name(note), type="hinge",
+                              axis="1 0 0", limited="true",
+                              range=_numbers((0, math.asin(travel / lever))),
+                              stiffness="1.5", damping="0.06", armature="0.001")
+                key_bodies[note] = body, pivot
+            parent, pivot = key_bodies[note]
+            position = [value - origin for value, origin in zip(position, pivot)]
+            attributes.update(contype="0", conaffinity="2", density="850")
+        elif movable_keys and name == "piano_keybed":
+            position = [position[0], position[1], position[2] - 0.012]
+        ET.SubElement(parent, "geom", pos=_numbers(position), **attributes)
     visual = root.find("visual")
     headlight = visual.find("headlight")
     headlight.set("diffuse", "0.35 0.35 0.35")

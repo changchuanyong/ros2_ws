@@ -1,0 +1,386 @@
+{
+  "song": "Two Tigers",
+  "platform": "Jetson aarch64",
+  "mujoco_version": "3.3.7",
+  "right_pose_sha256": "890c3d4a1cf6db53a9df4e5a3b1d127ef92494d7da763aece976717243cde5b7",
+  "original_fingering_probes": {
+    "74": {
+      "pose": "PRESS_D",
+      "finger": "index",
+      "touch_samples": 228,
+      "orientation": [
+        0,
+        0,
+        0
+      ],
+      "point": [
+        0.1298,
+        0.042249999999999996,
+        0.74
+      ]
+    },
+    "76": {
+      "pose": "PRESS_E",
+      "finger": "middle",
+      "touch_samples": 229,
+      "orientation": [
+        0,
+        0,
+        0
+      ],
+      "point": [
+        0.1534,
+        0.042249999999999996,
+        0.74
+      ]
+    },
+    "77": {
+      "pose": "PRESS_F",
+      "finger": "ring",
+      "touch_samples": 227,
+      "orientation": [
+        0,
+        0,
+        0
+      ],
+      "point": [
+        0.177,
+        0.042249999999999996,
+        0.74
+      ]
+    },
+    "79": {
+      "pose": "PRESS_G",
+      "finger": "little",
+      "touch_samples": 228,
+      "orientation": [
+        0,
+        0,
+        0
+      ],
+      "point": [
+        0.2006,
+        0.042249999999999996,
+        0.74
+      ]
+    },
+    "81": {
+      "pose": "PRESS_G",
+      "finger": "little",
+      "touch_samples": 229,
+      "orientation": [
+        0,
+        0,
+        0
+      ],
+      "point": [
+        0.22419999999999998,
+        0.042249999999999996,
+        0.74
+      ]
+    },
+    "72": {
+      "pose": "PRESS_C",
+      "finger": "thumb",
+      "blocked": true
+    },
+    "67": {
+      "pose": "PRESS_C",
+      "finger": "thumb",
+      "blocked": true
+    }
+  },
+  "alternate_fingering_probes": {
+    "72": {
+      "pose": "PRESS_D",
+      "finger": "index",
+      "touch_samples": 230,
+      "orientation": [
+        0,
+        0,
+        0
+      ],
+      "point": [
+        0.1062,
+        0.042249999999999996,
+        0.74
+      ]
+    },
+    "67": {
+      "pose": "PRESS_D",
+      "finger": "index",
+      "touch_samples": 227,
+      "orientation": [
+        0,
+        0,
+        0
+      ],
+      "point": [
+        0.0354,
+        0.042249999999999996,
+        0.74
+      ]
+    }
+  },
+  "left_hand": "Original right READY/PRESS_D values applied to left simulation joints",
+  "start_state": "Both arms initialized in validated flat-palm playing poses",
+  "strike": "Wrist targets fixed during READY to PRESS and PRESS to READY",
+  "right_fingering": {
+    "67": [
+      "D",
+      "index"
+    ],
+    "72": [
+      "D",
+      "index"
+    ],
+    "74": [
+      "D",
+      "index"
+    ],
+    "76": [
+      "E",
+      "middle"
+    ],
+    "77": [
+      "F",
+      "ring"
+    ],
+    "79": [
+      "G",
+      "little"
+    ],
+    "81": [
+      "G",
+      "little"
+    ],
+    "43": [
+      "D",
+      "index"
+    ],
+    "48": [
+      "D",
+      "index"
+    ]
+  },
+  "palm_tilt_max_degrees": {
+    "left": 2.3250056213455657,
+    "right": 2.261118249378836
+  },
+  "sim_seconds": 348.2,
+  "video_speed": 11.172413793103448,
+  "frames": 748,
+  "matched_note_ons_and_releases": {
+    "left": 8,
+    "right": 32
+  },
+  "unexpected_contacts": [],
+  "raw_contact_transitions": 320,
+  "passed": true,
+  "observed": {
+    "left": [
+      {
+        "time_sec": 3.9339999999997883,
+        "duration_sec": 0.4659999999999491,
+        "note": 48
+      },
+      {
+        "time_sec": 47.13400000001164,
+        "duration_sec": 0.46800000000057196,
+        "note": 48
+      },
+      {
+        "time_sec": 90.33399999997087,
+        "duration_sec": 0.4679999999989093,
+        "note": 48
+      },
+      {
+        "time_sec": 133.5339999999095,
+        "duration_sec": 0.46800000000223463,
+        "note": 48
+      },
+      {
+        "time_sec": 176.73400000011577,
+        "duration_sec": 0.46800000000223463,
+        "note": 48
+      },
+      {
+        "time_sec": 219.93400000032204,
+        "duration_sec": 0.46800000000223463,
+        "note": 48
+      },
+      {
+        "time_sec": 263.1360000005283,
+        "duration_sec": 0.462000000002206,
+        "note": 43
+      },
+      {
+        "time_sec": 306.3340000007346,
+        "duration_sec": 0.4660000000022251,
+        "note": 48
+      }
+    ],
+    "right": [
+      {
+        "time_sec": 3.945999999999787,
+        "duration_sec": 0.46399999999994934,
+        "note": 72
+      },
+      {
+        "time_sec": 14.746000000001594,
+        "duration_sec": 0.4620000000001543,
+        "note": 74
+      },
+      {
+        "time_sec": 25.54399999999672,
+        "duration_sec": 0.46399999999974284,
+        "note": 76
+      },
+      {
+        "time_sec": 36.345999999998455,
+        "duration_sec": 0.4660000000005695,
+        "note": 72
+      },
+      {
+        "time_sec": 47.146000000011654,
+        "duration_sec": 0.4660000000005695,
+        "note": 72
+      },
+      {
+        "time_sec": 57.94600000002485,
+        "duration_sec": 0.4620000000005646,
+        "note": 74
+      },
+      {
+        "time_sec": 68.74400000002119,
+        "duration_sec": 0.4639999999989186,
+        "note": 76
+      },
+      {
+        "time_sec": 79.54599999999601,
+        "duration_sec": 0.46599999999891395,
+        "note": 72
+      },
+      {
+        "time_sec": 90.34399999997085,
+        "duration_sec": 0.4639999999989186,
+        "note": 76
+      },
+      {
+        "time_sec": 101.14599999994567,
+        "duration_sec": 0.45999999999892793,
+        "note": 77
+      },
+      {
+        "time_sec": 111.9459999999205,
+        "duration_sec": 0.46199999999892327,
+        "note": 79
+      },
+      {
+        "time_sec": 133.54399999990954,
+        "duration_sec": 0.46400000000221553,
+        "note": 76
+      },
+      {
+        "time_sec": 144.34599999996112,
+        "duration_sec": 0.46000000000219643,
+        "note": 77
+      },
+      {
+        "time_sec": 155.1460000000127,
+        "duration_sec": 0.462000000002206,
+        "note": 79
+      },
+      {
+        "time_sec": 176.74600000011583,
+        "duration_sec": 0.462000000002206,
+        "note": 79
+      },
+      {
+        "time_sec": 182.1420000001416,
+        "duration_sec": 0.46400000000221553,
+        "note": 81
+      },
+      {
+        "time_sec": 187.5460000001674,
+        "duration_sec": 0.462000000002206,
+        "note": 79
+      },
+      {
+        "time_sec": 192.94600000019318,
+        "duration_sec": 0.46000000000219643,
+        "note": 77
+      },
+      {
+        "time_sec": 198.34400000021895,
+        "duration_sec": 0.46400000000221553,
+        "note": 76
+      },
+      {
+        "time_sec": 209.14600000027053,
+        "duration_sec": 0.46400000000221553,
+        "note": 72
+      },
+      {
+        "time_sec": 219.9460000003221,
+        "duration_sec": 0.462000000002206,
+        "note": 79
+      },
+      {
+        "time_sec": 225.34200000034787,
+        "duration_sec": 0.46400000000221553,
+        "note": 81
+      },
+      {
+        "time_sec": 230.74600000037367,
+        "duration_sec": 0.462000000002206,
+        "note": 79
+      },
+      {
+        "time_sec": 236.14600000039945,
+        "duration_sec": 0.46000000000219643,
+        "note": 77
+      },
+      {
+        "time_sec": 241.54400000042523,
+        "duration_sec": 0.46400000000221553,
+        "note": 76
+      },
+      {
+        "time_sec": 252.3460000004768,
+        "duration_sec": 0.46400000000221553,
+        "note": 72
+      },
+      {
+        "time_sec": 263.1460000005284,
+        "duration_sec": 0.4660000000022251,
+        "note": 72
+      },
+      {
+        "time_sec": 273.95000000057996,
+        "duration_sec": 0.46000000000219643,
+        "note": 67
+      },
+      {
+        "time_sec": 284.7460000006315,
+        "duration_sec": 0.46400000000221553,
+        "note": 72
+      },
+      {
+        "time_sec": 306.34600000073465,
+        "duration_sec": 0.46400000000221553,
+        "note": 72
+      },
+      {
+        "time_sec": 317.15000000078624,
+        "duration_sec": 0.46000000000219643,
+        "note": 67
+      },
+      {
+        "time_sec": 327.9460000008378,
+        "duration_sec": 0.46400000000221553,
+        "note": 72
+      }
+    ]
+  }
+}

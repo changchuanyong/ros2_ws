@@ -1,8 +1,13 @@
 import os
+import sys
+import tempfile
 
 from ament_index_python.packages import get_package_share_directory
 from launch import LaunchDescription
-from launch.actions import DeclareLaunchArgument, IncludeLaunchDescription, OpaqueFunction, TimerAction
+from launch.actions import (
+    DeclareLaunchArgument, ExecuteProcess, IncludeLaunchDescription, LogInfo, OpaqueFunction,
+    TimerAction,
+)
 from launch.launch_description_sources import PythonLaunchDescriptionSource
 from launch.substitutions import LaunchConfiguration
 from launch_ros.actions import Node
@@ -13,6 +18,25 @@ from rm_mujoco.scene import key_positions, load_layout
 def launch_setup(context):
     mujoco_share = get_package_share_directory("rm_mujoco")
     player_share = get_package_share_directory("rm_piano_player")
+    if LaunchConfiguration("flat_palms").perform(context).lower() == "true":
+        example = os.path.join(mujoco_share, "examples", "two_tigers_flat_palms")
+        output = LaunchConfiguration("output_dir").perform(context)
+        output = output or tempfile.mkdtemp(prefix="flat_palm_piano_")
+        score = LaunchConfiguration("midi_file").perform(context)
+        score = score or os.path.join(example, "two_tigers_original_pose_score.mid")
+        fingering = LaunchConfiguration("fingering").perform(context)
+        fingering = fingering or os.path.join(example, "fingering.yaml")
+        return [
+            LogInfo(msg=f"Flat-palm simulation output: {output}"),
+            ExecuteProcess(
+                cmd=[sys.executable, os.path.join(example, "run_flat_palms.py"),
+                     mujoco_share, output, "--score", score, "--fingering", fingering,
+                     "--pose-file", os.path.join(player_share, "config", "right_hand_ode_to_joy.yaml"),
+                     "--scene-config", LaunchConfiguration("scene_config"),
+                     "--tempo-scale", LaunchConfiguration("flat_tempo_scale"), "--ros-events"],
+                output="screen",
+            ),
+        ]
     layout = load_layout(LaunchConfiguration("scene_config").perform(context))
     mujoco_launch = IncludeLaunchDescription(
         PythonLaunchDescriptionSource(
@@ -74,6 +98,11 @@ def launch_setup(context):
 def generate_launch_description():
     return LaunchDescription([
         DeclareLaunchArgument("midi_file", default_value=""),
+        DeclareLaunchArgument("flat_palms", default_value="false",
+                              description="Run the headless flat-palm simulator and publish key events"),
+        DeclareLaunchArgument("flat_tempo_scale", default_value="12.0"),
+        DeclareLaunchArgument("fingering", default_value=""),
+        DeclareLaunchArgument("output_dir", default_value=""),
         DeclareLaunchArgument("midi_input", default_value=""),
         DeclareLaunchArgument("execute", default_value="false"),
         DeclareLaunchArgument("feedback_enabled", default_value="false"),

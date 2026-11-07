@@ -39,6 +39,14 @@ install(
 
 install(FILES README.md DESTINATION share/${PROJECT_NAME})
 
+install(
+  FILES
+    examples/two_tigers_flat_palms/run_flat_palms.py
+    examples/two_tigers_flat_palms/fingering.yaml
+    examples/two_tigers_flat_palms/two_tigers_original_pose_score.mid
+  DESTINATION share/${PROJECT_NAME}/examples/two_tigers_flat_palms
+)
+
 if(BUILD_TESTING)
   find_package(ament_cmake_pytest REQUIRED)
   ament_add_pytest_test(model_stability test/test_model_stability.py TIMEOUT 60)

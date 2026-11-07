@@ -13,6 +13,7 @@ PACKAGE = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(PACKAGE))
 
 from rm_mujoco.scene import build_model, load_layout  # noqa: E402
+from rm_mujoco.keyboard import KEY_NOTES, KeyEvents, key_joint_name  # noqa: E402
 
 
 @pytest.fixture
@@ -89,3 +90,41 @@ def test_ready_position_servos_hold_against_gravity(piano_model):
     for name, target in layout["initial_positions"].items():
         position = data.qpos[model.joint(name).qposadr[0]]
         assert abs(position - target) < 0.01, name
+
+
+def test_passive_keys_return_and_emit_independent_note_edges(tmp_path):
+    layout = load_layout(PACKAGE / "config" / "piano_scene.yaml")
+    path = build_model(PACKAGE / "models" / "rm_75_6fb_v_dual_l20.xml",
+                       layout, tmp_path, movable_keys=True)
+    model = mujoco.MjModel.from_xml_path(str(path))
+    data = mujoco.MjData(model)
+    mujoco.mj_resetDataKeyframe(model, data, model.key("piano_ready").id)
+    mujoco.mj_forward(model, data)
+    assert sum(model.joint(i).name.endswith("_hinge") for i in range(model.njnt)) == 88
+    assert model.geom("piano_key_074").bodyid == model.geom("piano_key_074_rear").bodyid
+    white_geom = model.geom("piano_key_074").id
+    rest_z = data.geom_xpos[white_geom, 2]
+    events = KeyEvents(model)
+    notes = []
+
+    def apply_torque(note, torque, duration):
+        joint = model.joint(key_joint_name(note))
+        data.qfrc_applied[joint.dofadr[0]] = torque
+        for _ in range(round(duration / model.opt.timestep)):
+            mujoco.mj_step(model, data)
+            notes.extend((edge, pitch) for _, edge, pitch in events.update(data))
+        assert not data.warning.number.any()
+
+    apply_torque(74, 0.012, 0.25)
+    assert not notes
+    apply_torque(74, 0.11, 0.25)
+    assert data.geom_xpos[white_geom, 2] < rest_z - 0.004
+    apply_torque(74, 0.0, 0.10)
+    apply_torque(74, 0.11, 0.10)
+    apply_torque(74, 0.0, 0.25)
+    apply_torque(73, 0.17, 0.25)
+    apply_torque(73, 0.0, 0.25)
+    assert notes == [("on", 74), ("off", 74), ("on", 74), ("off", 74),
+                     ("on", 73), ("off", 73)]
+    assert all(abs(data.qpos[model.joint(key_joint_name(note)).qposadr[0]]) < 0.005
+               for note in KEY_NOTES)

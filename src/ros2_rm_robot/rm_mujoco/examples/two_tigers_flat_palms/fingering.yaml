@@ -1,0 +1,11 @@
+right:
+  67: [D, index]
+  72: [D, index]
+  74: [D, index]
+  76: [E, middle]
+  77: [F, ring]
+  79: [G, little]
+  81: [G, little]
+left:
+  43: [D, index]
+  48: [D, index]

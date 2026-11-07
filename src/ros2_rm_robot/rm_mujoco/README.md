@@ -63,10 +63,38 @@ ros2 launch rm_piano_player rm_75_dual_l20_piano_mujoco.launch.py \
   midi_file:=/absolute/path/song.mid execute:=false
 ```
 
-琴键目前是固定几何，没有琴键行程或 MIDI 接触反馈。MoveIt URDF 仍仅规划
-双臂，L20 在 MuJoCo 中由手部控制器控制，未加入 MoveIt 的手部碰撞模型。
-键位表提供琴键表面坐标，播放器仍使用机械臂工具端目标；实际按键还需要
-指尖/工具坐标标定。场景与控制器验证不代表完整曲目已能演奏。
+默认 MoveIt 场景用固定琴键规划双臂。平掌演奏入口用同一布局生成 88 个被动
+铰链琴键，由指尖压下并由弹簧回位。白键的前后两段随同一个铰链运动。
+MIDI 按下和松开事件由琴键角度触发，指尖接触另外记录。
+
+从工作空间根目录运行独立仿真，使用能导入 MuJoCo、NumPy 和 PyYAML 的 Python：
+
+```bash
+demo=src/ros2_rm_robot/rm_mujoco/examples/two_tigers_flat_palms
+python3 "$demo/run_flat_palms.py" src/ros2_rm_robot/rm_mujoco /tmp/two_tigers_keys \
+  --score "$demo/two_tigers_original_pose_score.mid"
+```
+
+构建并加载工作空间后，也可从 ROS 2 启动同一无头仿真：
+
+```bash
+ros2 launch rm_piano_player rm_75_dual_l20_piano_mujoco.launch.py \
+  flat_palms:=true output_dir:=/tmp/two_tigers_ros
+ros2 topic echo /sim_piano/key_event std_msgs/msg/String --qos-durability transient_local
+```
+
+平掌入口用 MuJoCo 仿真时钟安排左右手，直接在该仿真进程内驱动模型。ROS 2
+入口发布 JSON 格式的实际键事件，字段为 `sim_time_sec`、`type` 和 `note`。
+报告与 MIDI 分别保存到 `report.json` 和 `played_keys.mid`，原始触键记录另存
+`raw_contacts.json`。复跑时使用新的输出目录。
+
+当前示例支持 MIDI 通道 0（右手）和 1（左手），每手同一时刻一个音、两手使用
+不同的键位，并需要相应的指法表。导出 MIDI 使用固定力度，踏板动作暂未实现。
+《两只老虎》的默认演奏时钟放慢 12 倍。同音连击保持腕位，相邻键可共用腕位换指，
+或在短间隔内缩短平移时间。平移须通过动力学检查，其他换位优先试短抬腕，
+触键预检失败时试完整抬腕。
+可通过 `--tempo-scale` 或 `flat_tempo_scale:=` 调整速度，间隔不足时会报错。
+报告中的 `wrist_transitions` 记录了两手各自采用的换位方式。
 
 ## Jetson 验证（2026-10-21）
 
