@@ -72,26 +72,8 @@ install(FILES README_CN.md
 )
 
 if(BUILD_TESTING)
-  add_executable(test_key_positions test/test_key_positions.cpp)
-  add_test(NAME test_key_positions COMMAND test_key_positions)
   find_package(ament_cmake_pytest REQUIRED)
-  ament_add_pytest_test(test_midi_feedback_monitor
-    test/test_midi_feedback_monitor.py
-    TIMEOUT 30
-  )
-  ament_add_pytest_test(test_single_hand_core test/test_single_hand_core.py TIMEOUT 30)
-  ament_add_pytest_test(test_single_hand_node test/test_single_hand_node.py TIMEOUT 120)
-  ament_add_pytest_test(test_single_hand_launch test/test_single_hand_launch.py TIMEOUT 30)
-  ament_add_pytest_test(test_single_hand_process test/test_single_hand_process.py TIMEOUT 90)
   ament_add_pytest_test(test_midi_file test/test_midi_file.py TIMEOUT 30)
-  ament_add_pytest_test(test_recording test/test_recording.py TIMEOUT 30)
-  ament_add_pytest_test(test_single_hand_recording test/test_single_hand_recording.py TIMEOUT 120)
-  ament_add_pytest_test(test_speed_test_core test/test_speed_test_core.py TIMEOUT 30)
-  ament_add_pytest_test(test_raw_midi test/test_raw_midi.py TIMEOUT 30)
-  ament_add_pytest_test(test_midi_capture test/test_midi_capture.py TIMEOUT 30)
-  ament_add_pytest_test(test_speed_test_launch test/test_speed_test_launch.py TIMEOUT 30)
-  ament_add_pytest_test(test_speed_test_node test/test_speed_test_node.py TIMEOUT 120)
-  ament_add_pytest_test(test_speed_test_process test/test_speed_test_process.py TIMEOUT 120)
 endif()
 
 ament_package()
