@@ -14,6 +14,8 @@ parser.add_argument("--score", type=Path, help="PPQN MIDI score, channel 0 right
 parser.add_argument("--fingering", type=Path, default=Path(__file__).with_name("fingering.yaml"))
 parser.add_argument("--pose-file", type=Path, help="L20 READY and PRESS pose configuration")
 parser.add_argument("--scene-config", type=Path, help="override the MuJoCo scene layout")
+parser.add_argument("--motion-plan", type=Path,
+                    help="use a calibrated joint trajectory for the supplied MIDI score")
 parser.add_argument("--tempo-scale", type=float, default=12.0, help="simulation seconds per score second")
 parser.add_argument("--attack-duration", type=float, default=0.44,
                     help="seconds for the strike; the key closes on the score grid")
@@ -53,6 +55,8 @@ if args.key_press_deg is not None and not 0 <= args.key_press_deg < args.key_rel
     parser.error("key thresholds must satisfy 0 <= --key-press-deg < --key-release-deg")
 if args.ros_events and args.score is None:
     parser.error("--ros-events requires --score")
+if args.motion_plan is not None and args.score is None:
+    parser.error("--motion-plan requires --score")
 movable_keys = args.score is not None
 pkg = args.package.resolve()
 output = args.output.resolve()
@@ -60,15 +64,19 @@ output.mkdir(parents=True, exist_ok=True)
 if args.score is not None and any(output.iterdir()):
     parser.error("Use an empty output directory for a score run")
 sys.path.insert(0, str(pkg))
+from rm_mujoco.fast_score import (
+    KEY_TIMING_TOLERANCE, START_DELAY, hand_targets, load_motion_plan, motion_signature,
+)
 from rm_mujoco.keyboard import KeyEvents
 from rm_mujoco.l20_joint_mapping import HAND_JOINT_SUFFIXES, command_positions
 from rm_mujoco.scene import build_model, load_layout, key_positions
 
-layout = load_layout(args.scene_config or pkg / 'config/piano_scene.yaml')
+scene_path = args.scene_config or pkg / 'config/piano_scene.yaml'
+robot_path = pkg / 'models/rm_75_6fb_v_dual_l20.xml'
+layout = load_layout(scene_path)
 with tempfile.TemporaryDirectory(prefix='piano_ik_', dir=output) as tmp:
     model = m.MjModel.from_xml_path(str(build_model(
-        pkg / 'models/rm_75_6fb_v_dual_l20.xml', layout, tmp,
-        movable_keys=movable_keys)))
+        robot_path, layout, tmp, movable_keys=movable_keys)))
 press_depth = 0.008 if movable_keys else 0.0022
 
 ready_id = model.key('piano_ready').id
@@ -812,7 +820,7 @@ RELEASE_DURATION = args.release_duration
 ATTACK_CONTACT_RATIO = 0.30 / 0.44
 RELEASE_CONTACT_RATIO = 0.18 / 0.38
 # A note counts as matched when its onset and its release both fall in this window.
-TIMING_TOLERANCE_SEC = 0.25
+TIMING_TOLERANCE_SEC = KEY_TIMING_TOLERANCE if args.motion_plan is not None else 0.25
 
 
 def transfer_is_clear(previous, current, transfer, side, note):
@@ -911,9 +919,17 @@ def schedule_hand(notes, plans, scale, side):
             shared_cache[key] = share_wrist(note, anchor, plans[note], side, arm)
         return shared_cache[key]
 
-    def share_or_refinger(note, anchor, anchor_note):
+    def share_or_refinger(note, anchor, anchor_note, next_note, available, next_available):
         """Play `note` without moving the arm, re-fingering it when that is what it takes."""
         if can_share(anchor_note, note) and (shared := at_wrist(note, anchor)) is not None:
+            own = plans[note]
+            # Move now if reusing the wrist would leave the next note without a clear route.
+            if (next_note is not None and can_share(note, next_note)
+                    and at_wrist(next_note, shared) is None
+                    and at_wrist(next_note, own) is not None
+                    and find_transfer(note, shared, next_note, plans[next_note], next_available) is None
+                    and find_transfer(anchor_note, anchor, note, own, available) is not None):
+                return None
             counts["shared_wrist"] += 1
             return shared
         if abs(anchor_note - note) > 3:
@@ -947,25 +963,33 @@ def schedule_hand(notes, plans, scale, side):
         off = 2.20 + note.end * scale
         attack_start = on - ATTACK_CONTACT_RATIO * ATTACK_DURATION
         release_start = off - RELEASE_CONTACT_RATIO * RELEASE_DURATION
+        release_end = release_start + RELEASE_DURATION
+        available = round(attack_start - waypoints[-1][0], 9)
+        next_note = None
+        next_available = None
+        if index + 1 < len(notes):
+            following = notes[index + 1]
+            next_note = following.note
+            next_attack = 2.20 + following.start * scale - ATTACK_CONTACT_RATIO * ATTACK_DURATION
+            next_available = round(next_attack - release_end, 9)
         current = plans[note.note]
         if previous_note == note.note:
             current = previous
             transfer = []
             counts["repeat"] += 1
         elif previous is not None and (
-                shared := share_or_refinger(note.note, previous, previous_note)) is not None:
+                shared := share_or_refinger(
+                    note.note, previous, previous_note, next_note, available, next_available)) is not None:
             current = shared
             transfer = []
         else:
-            if index + 1 < len(notes):
-                next_note = notes[index + 1].note
+            if next_note is not None:
                 if can_share(note.note, next_note) and at_wrist(next_note, current) is None:
                     current = at_wrist(note.note, plans[next_note]) or current
             if previous is None:
                 waypoints[0] = (0.0, current[1])
                 transfer = [(0.62, current[3])]
             else:
-                available = round(attack_start - waypoints[-1][0], 9)
                 chosen = find_transfer(previous_note, previous, note.note, current, available)
                 if chosen is None and current is not plans[note.note]:
                     current = plans[note.note]
@@ -981,7 +1005,6 @@ def schedule_hand(notes, plans, scale, side):
                 counts[mode] += 1
 
         ready, press = current[3:5]
-        release_end = release_start + RELEASE_DURATION
         approach_start = attack_start - sum(duration for duration, _ in transfer)
         approach = [(approach_start, waypoints[-1][1])]
         for duration, pose in transfer:
@@ -1003,17 +1026,42 @@ def schedule_hand(notes, plans, scale, side):
 
 def play_midi(capture, publish=None):
     schedules, transitions = {}, {}
-    for side, plans in (("left", left_plans), ("right", second)):
-        schedules[side], transitions[side] = schedule_hand(
-            score_by_hand[side], plans, args.tempo_scale, side)
-    print("WRIST TRANSITIONS", json.dumps(transitions), flush=True)
     actuators = {side: np.flatnonzero(np.isin(qctrl, indices))
                  for side, indices in (("left", left_indices), ("right", right_indices))}
     addresses = {side: qctrl[channels] for side, channels in actuators.items()}
     sim = m.MjData(model)
     m.mj_resetDataKeyframe(model, sim, ready_id)
-    sim.qpos[left_indices] = schedules["left"][0][0][1][left_indices]
-    sim.qpos[right_indices] = schedules["right"][0][0][1][right_indices]
+    calibrated = args.motion_plan is not None
+    if calibrated:
+        if fingering != original_fingering:
+            raise ValueError("Motion plan requires the supplied fingering for every note")
+        paths = {"scene": scene_path, "robot": robot_path, "poses": pose_path,
+                 "fingering": args.fingering, "scene_builder": Path(build_model.__code__.co_filename)}
+        signature = motion_signature(args.score, paths, args.tempo_scale, model.opt.timestep,
+                                     args.key_press_deg, args.key_release_deg)
+        motion = load_motion_plan(args.motion_plan, signature)
+        end = START_DELAY + max(notes[-1].end for notes in score_by_hand.values()) * args.tempo_scale + 0.45
+        time = np.arange(1, round(end / model.opt.timestep) + 1) * model.opt.timestep
+        for side, arm in (("left", leftqa), ("right", rightqa)):
+            joints = addresses[side]
+            roots = {
+                finger: int(np.flatnonzero(joints == model.joint(f"{side}_{finger}_joint1").qposadr[0])[0])
+                for finger in ("index", "middle", "ring", "little")
+            }
+            track, ready, windows = hand_targets(
+                motion[side], score_by_hand[side], time, args.tempo_scale,
+                np.isin(joints, arm), roots, model.actuator_ctrlrange[actuators[side]])
+            sim.qpos[joints] = ready
+            schedules[side] = track, windows
+            transitions[side] = {"calibrated": len(windows) - 1}
+    else:
+        for side, plans in (("left", left_plans), ("right", second)):
+            schedules[side], transitions[side] = schedule_hand(
+                score_by_hand[side], plans, args.tempo_scale, side)
+            joints = addresses[side]
+            sim.qpos[joints] = schedules[side][0][0][1][joints]
+        end = max(waypoints[-1][0] for waypoints, _ in schedules.values()) + 0.4
+    print("WRIST TRANSITIONS", json.dumps(transitions), flush=True)
     sim.ctrl[:] = sim.qpos[qctrl]
     m.mj_forward(model, sim)
 
@@ -1023,10 +1071,13 @@ def play_midi(capture, publish=None):
     active = set()
     waypoint_index = dict.fromkeys(sides, 0)
     window_index = dict.fromkeys(sides, 0)
-    end = max(waypoints[-1][0] for waypoints, _ in schedules.values()) + 0.4
-    while sim.time < end:
+    step = 0
+    while (step < len(time) if calibrated else sim.time < end):
         now = sim.time
         for side, (waypoints, _) in schedules.items():
+            if calibrated:
+                sim.ctrl[actuators[side]] = waypoints[step]
+                continue
             index = waypoint_index[side]
             while index + 1 < len(waypoints) and now >= waypoints[index + 1][0]:
                 index += 1
@@ -1042,6 +1093,7 @@ def play_midi(capture, publish=None):
             else:
                 sim.ctrl[channels] = pose[joints]
         m.mj_step(model, sim)
+        step += 1
         if sim.time <= now or sim.warning.number.any():
             raise RuntimeError("Unstable MuJoCo trajectory")
         new_edges = key_events.update(sim)
@@ -1057,15 +1109,21 @@ def play_midi(capture, publish=None):
             while index < len(windows) and sim.time > windows[index][1]:
                 index += 1
             window_index[side] = index
-            if index < len(windows) and sim.time >= windows[index][0]:
-                allowed[side] = windows[index][2]
+            active_windows = windows[index:index + (2 if calibrated else 1)]
+            allowed[side] = {pitch for begin, finish, pitch, _, _ in active_windows
+                             if begin <= sim.time <= finish}
         for side, note, geom in keys:
-            if allowed.get(side) != note or not geom.startswith(f"{side}_{fingering[note][1]}_"):
+            if note not in allowed[side] or not geom.startswith(f"{side}_{fingering[note][1]}_"):
                 contact = (side, note, geom)
                 if contact not in bad:
                     print("UNEXPECTED CONTACT", round(sim.time, 3), contact, allowed, flush=True)
                 bad.add(contact)
         touching = {(side, note) for side, note, _ in keys}
+        if calibrated:
+            for side in sides:
+                pitches = tuple(sorted(note for hand, note in touching if hand == side))
+                if len(pitches) > 1:
+                    bad.add((side, "simultaneous_keys", pitches))
         raw_contacts.extend((sim.time, "on", *key) for key in sorted(touching - active))
         raw_contacts.extend((sim.time, "off", *key) for key in sorted(active - touching))
         active = touching
@@ -1145,7 +1203,8 @@ report={'song':args.score.stem if args.score else 'Two Tigers',
         'alternate_fingering_probes':alternate_results,
         'left_hand':'Original right READY/PRESS_D values applied to left simulation joints',
         'start_state':'Both arms initialized in validated flat-palm playing poses',
-        'strike':'Wrist targets fixed during READY to PRESS and PRESS to READY',
+        'strike':('Calibrated overlapping wrist and finger commands' if args.motion_plan
+                  else 'Wrist targets fixed during READY to PRESS and PRESS to READY'),
         'contact_offset':args.contact_offset,
         'right_fingering':fingering}
 palm_tilt={side:0.0 for side in sides}

@@ -1,7 +1,9 @@
 """Check that idle and moving L20 joints do not reset the simulation clock."""
 
+import json
 import math
 from pathlib import Path
+import subprocess
 import sys
 
 import pytest
@@ -146,3 +148,54 @@ def test_key_press_sites_ride_on_the_key(tmp_path):
         mujoco.mj_step(model, data)
     assert data.site_xpos[site, 2] < rest[2] - 0.004
     assert abs(data.site_xpos[site, 1] - rest[1]) < 0.002
+
+
+def test_flat_palm_wrist_lookahead_keeps_the_next_note_playable(tmp_path):
+    sys.path.insert(0, str(PACKAGE.parent / "rm_piano_player"))
+    from rm_piano_player.midi_file import export_midi
+
+    # Keep every demo pitch in the score so the pose search starts from the same seeds.
+    right = [(79, 0, 150), (81, 223, 150), (79, 446, 150), (77, 668, 150),
+             (76, 891, 150), (67, 1271, 140), (72, 1641, 140), (74, 2011, 140)]
+    left = [(48, 0, 500), (43, 1050, 400)]
+    events = []
+    for channel, notes in enumerate((right, left)):
+        for pitch, start, duration in notes:
+            for time, edge, velocity in ((start, "on", 80), (start + duration, "off", 0)):
+                events.append({"event": "midi", "type": edge, "channel": channel,
+                               "note": pitch, "velocity": velocity,
+                               "monotonic_ns": time * 1_000_000})
+    events.sort(key=lambda event: event["monotonic_ns"])
+    source = tmp_path / "score.jsonl"
+    source.write_text("".join(json.dumps(event) + "\n" for event in events), encoding="utf-8")
+    score = tmp_path / "score.mid"
+    export_midi(source, score)
+
+    demo = PACKAGE / "examples" / "two_tigers_flat_palms"
+    output = tmp_path / "simulation"
+    result = subprocess.run(
+        [sys.executable, "-B", str(demo / "run_flat_palms.py"), str(PACKAGE), str(output),
+         "--score", str(score), "--tempo-scale", "12"],
+        capture_output=True, text=True, timeout=55, check=False)
+    assert result.returncode == 0, result.stdout + result.stderr
+    report = json.loads((output / "report.json").read_text(encoding="utf-8"))
+    assert report["passed"]
+    assert report["key_state_transitions"] == 20
+    assert not report["unexpected_contacts"]
+
+
+def test_calibrated_c5_g5_at_score_tempo(tmp_path):
+    demo = PACKAGE / "examples" / "two_tigers_flat_palms"
+    result = subprocess.run(
+        [sys.executable, "-B", str(demo / "run_flat_palms.py"), str(PACKAGE), str(tmp_path),
+         "--score", str(demo / "two_tigers_c5_g5_1x.mid"), "--tempo-scale", "1",
+         "--motion-plan", str(demo / "two_tigers_c5_g5_1x.json")],
+        capture_output=True, text=True, timeout=20, check=False)
+    assert result.returncode == 0, result.stdout + result.stderr
+    report = json.loads((tmp_path / "report.json").read_text(encoding="utf-8"))
+    assert report["passed"]
+    assert report["key_state_transitions"] == 6
+    assert report["timing_tolerance_sec"] == 0.025
+    c5, g5 = report["observed"]["right"]
+    assert (c5["note"], g5["note"]) == (72, 79)
+    assert g5["time_sec"] - (c5["time_sec"] + c5["duration_sec"]) == pytest.approx(0.145, abs=0.012)

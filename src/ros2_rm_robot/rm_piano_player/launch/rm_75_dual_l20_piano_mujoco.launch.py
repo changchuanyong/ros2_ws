@@ -26,16 +26,17 @@ def launch_setup(context):
         score = score or os.path.join(example, "two_tigers_original_pose_score.mid")
         fingering = LaunchConfiguration("fingering").perform(context)
         fingering = fingering or os.path.join(example, "fingering.yaml")
+        command = [sys.executable, os.path.join(example, "run_flat_palms.py"),
+                   mujoco_share, output, "--score", score, "--fingering", fingering,
+                   "--pose-file", os.path.join(player_share, "config", "right_hand_ode_to_joy.yaml"),
+                   "--scene-config", LaunchConfiguration("scene_config"),
+                   "--tempo-scale", LaunchConfiguration("flat_tempo_scale"), "--ros-events"]
+        motion_plan = LaunchConfiguration("flat_motion_plan").perform(context)
+        if motion_plan:
+            command.extend(("--motion-plan", motion_plan))
         return [
             LogInfo(msg=f"Flat-palm simulation output: {output}"),
-            ExecuteProcess(
-                cmd=[sys.executable, os.path.join(example, "run_flat_palms.py"),
-                     mujoco_share, output, "--score", score, "--fingering", fingering,
-                     "--pose-file", os.path.join(player_share, "config", "right_hand_ode_to_joy.yaml"),
-                     "--scene-config", LaunchConfiguration("scene_config"),
-                     "--tempo-scale", LaunchConfiguration("flat_tempo_scale"), "--ros-events"],
-                output="screen",
-            ),
+            ExecuteProcess(cmd=command, output="screen"),
         ]
     layout = load_layout(LaunchConfiguration("scene_config").perform(context))
     mujoco_launch = IncludeLaunchDescription(
@@ -101,6 +102,7 @@ def generate_launch_description():
         DeclareLaunchArgument("flat_palms", default_value="false",
                               description="Run the headless flat-palm simulator and publish key events"),
         DeclareLaunchArgument("flat_tempo_scale", default_value="12.0"),
+        DeclareLaunchArgument("flat_motion_plan", default_value=""),
         DeclareLaunchArgument("fingering", default_value=""),
         DeclareLaunchArgument("output_dir", default_value=""),
         DeclareLaunchArgument("midi_input", default_value=""),
