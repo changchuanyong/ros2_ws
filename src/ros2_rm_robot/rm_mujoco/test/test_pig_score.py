@@ -124,3 +124,50 @@ def test_repeated_pitch_with_two_fingers_needs_a_policy(tmp_path):
     assert conflicts
     common, _ = pig_score.fingering_table(hands, "most-common")
     assert common["right"][72] == ["C", "thumb"]
+
+
+def test_events_keep_repeated_pitch_with_different_fingers(tmp_path):
+    path = _write(tmp_path, "turn_events", [
+        (72, 0.0, 0.5, 0), (74, 0.5, 1.0, 1), (72, 1.0, 1.5, 2),
+        (48, 0.0, 0.5, 5)])
+    hands = pig_score.group_hands(pig_score.read_notes(path))
+    events = pig_score.fingering_events(hands)
+    same_pitch = [event for event in events if event["note"] == 72]
+    assert [event["finger"] for event in same_pitch] == ["thumb", "middle"]
+    assert [event["id"] for event in events] == [1, 2, 3, 4]
+
+
+def test_group_hands_accepts_a_same_hand_chord(tmp_path):
+    path = _write(tmp_path, "chord", [
+        (60, 0.0, 0.5, 0), (64, 0.0, 0.5, 2), (67, 0.0, 0.5, 4),
+        (48, 0.0, 0.5, 5)])
+    hands = pig_score.group_hands(pig_score.read_notes(path))
+    events = pig_score.fingering_events(hands)
+    right = [event for event in events if event["hand"] == "right"]
+    assert [(event["note"], event["finger"]) for event in right] == [
+        (60, "thumb"), (64, "middle"), (67, "little")]
+    assert len(right) == 3
+
+
+def test_missing_pig_fingering_becomes_a_null_event_finger(tmp_path):
+    path = _write(tmp_path, "no_finger_events", [
+        (72, 0.0, 0.5, -1), (48, 0.0, 0.5, 5)])
+    hands = pig_score.group_hands(pig_score.read_notes(path))
+    events = pig_score.fingering_events(hands)
+    unknown = next(event for event in events if event["note"] == 72)
+    assert unknown["hand"] == "right"
+    assert unknown["finger"] is None
+
+
+def test_main_writes_the_per_note_event_file(tmp_path, monkeypatch):
+    proto = _write(tmp_path, "chord_main", [
+        (60, 0.0, 0.5, 0), (64, 0.0, 0.5, 2), (48, 0.0, 0.5, 5)])
+    output = tmp_path / "out"
+    monkeypatch.setattr(sys, "argv", [
+        "pig_score.py", str(proto), str(output), "--name", "song"])
+    assert pig_score.main() == 0
+    document = yaml.safe_load(
+        (output / "song.fingering.yaml").read_text(encoding="utf-8"))
+    assert document["format"] == "piano_fingering/1"
+    assert [event["note"] for event in document["events"]] == [48, 60, 64]
+    assert all(event["end"] == pytest.approx(0.5) for event in document["events"])

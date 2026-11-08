@@ -59,6 +59,33 @@ ros2 topic echo /joint_states --once
 
 预期五个控制器均为 `active`，关节状态包含 58 个关节。RViz 中选择规划组，Start State 选 `<current>`，设置目标后先 **Plan** 再 **Execute**；MuJoCo 应随执行运动。无显示环境的启动方式见[仿真与 RViz 操作](#仿真与-rviz-操作)。
 
+### 1.1 PianoVAM 逐音符指法与多指仿真（仅仿真）
+
+在 MuJoCo 中把 PianoVAM/PIG 的逐音符指法变成 20 值手态计划，并播放实际
+被动琴键：
+
+```bash
+ros2 run rm_mujoco import_pianovam.py \
+  --fingering /path/to/PianoVAM_v1.2/Fingering/2024-09-04_17-02-04.tsv \
+  --output /tmp/song.fingering.yaml --hand right --limit 30
+ros2 run rm_mujoco plan_performance.py \
+  --score /tmp/song.fingering.yaml --output /tmp/song.performance.yaml
+ros2 run rm_mujoco run_performance.py \
+  --plan /tmp/song.performance.yaml --output /tmp/song_sim
+```
+
+PianoVAM 的 `key_offset` 是手指离键时间，不能拿 `frame_offset`（含踏板）
+当结束时间。当前只验收右手；左手没有独立标定。单音、E4+G4 两音和弦
++ 重复 G4 短旋律、以及更宽的 C4→D4→E4→G4 换位旋律都已通过
+`report.passed`（宽旋律 6 个音、最大起音误差 0.012 s、无缺音/错键/错指/
+尾部按键）。和弦与 C4 的仿真手态分别在
+[`right_hand_piano_sim.yaml`](../src/ros2_rm_robot/rm_mujoco/config/right_hand_piano_sim.yaml)
+的 `chords:` 和 `notes: '60'` 覆盖中，不修改真机
+[`right_hand_ode_to_joy.yaml`](../src/ros2_rm_robot/rm_piano_player/config/right_hand_ode_to_joy.yaml)。
+报告同时保存全 88 键角度、原始边沿和 arm/hand 跟踪；不能用规划器的静态接触
+代替实际键事件。详细说明见
+[rm_mujoco/README.md](../src/ros2_rm_robot/rm_mujoco/README.md)。
+
 ### 2. 连接真实机械臂
 
 给两台机械臂按设备要求供电，将上位机与两台机械臂通过网线接入同一局域网。当前配置为：**上位机 `192.168.1.100/24`、左臂 `192.168.1.18`、右臂 `192.168.1.19`**。先确认地址和连通性：

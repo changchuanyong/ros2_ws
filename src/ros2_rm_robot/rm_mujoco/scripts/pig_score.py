@@ -1,9 +1,9 @@
-"""Convert a PIG (Piano Fingering Dataset) NoteSequence proto into a flat-palm score.
+"""Convert a PIG NoteSequence proto into MIDI and per-note fingering events.
 
 The PIG release from RoboPianist stores each piece as a serialized magenta
-NoteSequence protobuf. Only five fields are needed to build a score for
-`run_flat_palms.py`, so this script parses the wire format directly instead of
-depending on protobuf or TensorFlow.
+NoteSequence protobuf. Only five fields are needed to build a score, so this
+script parses the wire format directly instead of depending on protobuf or
+TensorFlow.
 
 Field numbers come from magenta/note-seq `note_seq/protobuf/music.proto`:
 NoteSequence.notes = 8, and Note { pitch = 1, velocity = 2, start_time = 3,
@@ -13,7 +13,9 @@ left hand, both thumb to pinky; -1 means the note has no fingering.
 Usage:
     python3 pig_score.py song.proto OUT_DIR [--name NAME]
 
-Writes NAME.mid (channel 0 right, channel 1 left) and NAME.yaml under OUT_DIR.
+Writes NAME.mid (channel 0 right, channel 1 left), NAME.fingering.yaml (the
+canonical per-note event format), and, when the score can be expressed as a
+pitch-to-finger table, the legacy NAME.yaml used by `run_flat_palms.py`.
 """
 
 import argparse
@@ -130,6 +132,58 @@ def split_hands(notes):
     return hands
 
 
+def group_hands(notes):
+    """Group notes by hand without rejecting chords or repeated pitches.
+
+    PIG uses part 0-4 for the right hand and 5-9 for the left. A part of -1
+    means the note has no fingering; it is assigned to a hand by pitch so the
+    MIDI still has a channel, while the event keeps a null finger.
+    """
+    hands = {"right": [], "left": []}
+    for note in notes:
+        part = note["part"]
+        if part == -1:
+            side = "left" if note["pitch"] <= 59 else "right"
+        elif 0 <= part <= 9:
+            side = "right" if part < 5 else "left"
+        else:
+            raise ValueError(
+                f"MIDI note {note['pitch']} has part {part}; expected -1 or 0-9 "
+                "(0-4 right, 5-9 left)")
+        hands[side].append(note)
+    for side, hand_notes in hands.items():
+        hand_notes.sort(key=lambda item: (item["start"], item["pitch"]))
+    return hands
+
+
+def fingering_events(hands):
+    """Return one event per note, preserving repeated pitches with different fingers."""
+    events = []
+    for side in ("right", "left"):
+        for note in hands[side]:
+            part = note["part"]
+            finger = None
+            if 0 <= part <= 9:
+                finger = FINGER_PARTS[FINGER_NAMES[part % 5]]
+            events.append({
+                "hand": side,
+                "start": note["start"],
+                "end": note["end"],
+                "note": note["pitch"],
+                "velocity": note["velocity"],
+                "finger": finger,
+            })
+    events.sort(key=lambda item: (item["start"], item["hand"], item["note"]))
+    for index, event in enumerate(events, start=1):
+        event["id"] = index
+    return [
+        {"id": event["id"], "hand": event["hand"], "start": event["start"],
+         "end": event["end"], "note": event["note"], "velocity": event["velocity"],
+         "finger": event["finger"]}
+        for event in events
+    ]
+
+
 def fingering_table(hands, on_conflict="error"):
     """Map each pitch to the PRESS pose and finger named by its part field.
 
@@ -209,7 +263,8 @@ def main():
     parser.add_argument("--name", help="base name for the outputs (default: proto stem)")
     parser.add_argument("--on-conflict", choices=("error", "first", "most-common"),
                         default="error",
-                        help="what to do when one pitch is fingered differently")
+                        help="legacy pitch-table policy when one pitch is fingered "
+                             "differently; the per-note event file always keeps both")
     parser.add_argument("--note-gap", type=float, default=0.0, metavar="SECONDS",
                         help="shorten each note by this much score time so the wrist "
                              "can move between notes; legato scores need about 0.07s")
@@ -220,20 +275,41 @@ def main():
         parser.error("--note-gap must not be negative")
     for note in notes:
         note["end"] = max(note["start"] + 0.05, note["end"] - args.note_gap)
-    hands = split_hands(notes)
-    table, conflicts = fingering_table(hands, args.on_conflict)
+    hands = group_hands(notes)
+    events = fingering_events(hands)
 
     args.output.mkdir(parents=True, exist_ok=True)
     name = args.name or args.proto.stem
     write_midi(hands, args.output / f"{name}.mid")
-    (args.output / f"{name}.yaml").write_text(
-        yaml.safe_dump(table, sort_keys=True, allow_unicode=True), encoding="utf-8")
+    fingering_path = args.output / f"{name}.fingering.yaml"
+    fingering_path.write_text(
+        yaml.safe_dump(
+            {"format": "piano_fingering/1", "source": str(args.proto), "events": events},
+            sort_keys=False, allow_unicode=True),
+        encoding="utf-8")
 
-    print(f"WROTE {args.output / (name + '.mid')} {args.output / (name + '.yaml')}")
+    conflicts = []
+    table = None
+    try:
+        table, conflicts = fingering_table(hands, args.on_conflict)
+    except ValueError as error:
+        print(f"SKIPPED legacy pitch table: {error}")
+    if table is not None:
+        (args.output / f"{name}.yaml").write_text(
+            yaml.safe_dump(table, sort_keys=True, allow_unicode=True), encoding="utf-8")
+
+    written = [str(args.output / (name + ".mid")), str(fingering_path)]
+    if table is not None:
+        written.append(str(args.output / (name + ".yaml")))
+    print("WROTE", " ".join(written))
     for side in ("right", "left"):
-        pitches = [note["pitch"] for note in hands[side]]
-        print(f"{side} {len(hands[side])} notes, pitch {min(pitches)}-{max(pitches)}, "
-              f"duration {max(note['end'] for note in hands[side]):.2f}s")
+        hand_notes = hands[side]
+        if not hand_notes:
+            print(f"{side} 0 notes")
+            continue
+        pitches = [note["pitch"] for note in hand_notes]
+        print(f"{side} {len(hand_notes)} notes, pitch {min(pitches)}-{max(pitches)}, "
+              f"duration {max(note['end'] for note in hand_notes):.2f}s")
     for conflict in conflicts:
         print(f"CONFLICT {conflict} -> {args.on_conflict}")
     return 0

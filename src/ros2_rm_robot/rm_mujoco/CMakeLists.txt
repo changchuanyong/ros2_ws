@@ -11,6 +11,7 @@ install(
     config/rm_75_6fb_v_dual_l20_mujoco_control.urdf.xacro
     config/rm_75_6fb_v_dual_l20_mujoco_controllers.yaml
     config/piano_scene.yaml
+    config/right_hand_piano_sim.yaml
   DESTINATION share/${PROJECT_NAME}/config
 )
 
@@ -34,6 +35,10 @@ install(
 install(
   PROGRAMS
     scripts/l20_dual_command_bridge.py
+    scripts/import_pianovam.py
+    scripts/plan_performance.py
+    scripts/run_performance.py
+    scripts/calibrate_piano_chord.py
   DESTINATION lib/${PROJECT_NAME}
 )
 
@@ -44,15 +49,20 @@ install(
     examples/two_tigers_flat_palms/run_flat_palms.py
     examples/two_tigers_flat_palms/fingering.yaml
     examples/two_tigers_flat_palms/two_tigers_original_pose_score.mid
+    examples/two_tigers_flat_palms/two_tigers_c5_g5_1x.mid
+    examples/two_tigers_flat_palms/two_tigers_c5_g5_1x.json
   DESTINATION share/${PROJECT_NAME}/examples/two_tigers_flat_palms
 )
 
 if(BUILD_TESTING)
   find_package(ament_cmake_pytest REQUIRED)
-  ament_add_pytest_test(model_stability test/test_model_stability.py TIMEOUT 60)
+  ament_add_pytest_test(model_stability test/test_model_stability.py TIMEOUT 180)
   ament_add_pytest_test(piano_scene test/test_scene.py TIMEOUT 60)
   ament_add_pytest_test(key_events test/test_key_events.py TIMEOUT 60)
   ament_add_pytest_test(pig_score test/test_pig_score.py TIMEOUT 60)
+  ament_add_pytest_test(import_pianovam test/test_import_pianovam.py TIMEOUT 60)
+  ament_add_pytest_test(performance_plan test/test_performance.py TIMEOUT 60)
+  ament_add_pytest_test(fingering test/test_fingering.py TIMEOUT 180)
 endif()
 
 ament_package()
