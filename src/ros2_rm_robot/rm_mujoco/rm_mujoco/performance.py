@@ -158,6 +158,15 @@ def load_plan(path):
     return document
 
 
+def validate_physical_key_spans(spans, path):
+    """Reject overlapping requests for a single passive key."""
+    last_by_note = {}
+    for start, end, note in sorted(spans):
+        if start < last_by_note.get(note, 0.0) - EPS:
+            raise ValueError(f"{path}: overlapping events on physical key {note}")
+        last_by_note[note] = end
+
+
 def validate_plan(document, path="<plan>"):
     if not isinstance(document, dict):
         raise ValueError(f"{path}: plan must be a mapping")
@@ -181,6 +190,10 @@ def validate_plan(document, path="<plan>"):
         if not isinstance(hand, dict):
             raise ValueError(f"{path}: hands.{side} must be a mapping")
         _validate_hand(side, hand, path)
+    if len(hands) > 1:
+        validate_physical_key_spans(
+            ((event["start_sec"], event["end_sec"], event["note"])
+             for hand in hands.values() for event in hand["events"]), path)
     return document
 
 

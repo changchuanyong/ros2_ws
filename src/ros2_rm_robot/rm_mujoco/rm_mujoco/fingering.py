@@ -21,7 +21,7 @@ import yaml
 
 from .keyboard import KEY_NOTES, KeyEvents, key_joint_name
 from .l20_joint_mapping import HAND_JOINT_SUFFIXES, command_positions
-from .performance import FINGERS, MAX_CHORD, events_by_hand, group_events
+from .performance import FINGERS, MAX_CHORD, events_by_hand, group_events, validate_physical_key_spans
 from .performance_runtime import ArmTrack, HandTrack, KeyTravelMonitor, note_duration_tolerance
 from .scene import build_model, key_positions, load_layout
 
@@ -256,11 +256,15 @@ class PianoHandModel:
                     wrist = np.asarray(pose["arm_rad"], dtype=float)
                     shape = np.asarray(pose["positions"], dtype=float)
                     leads = tuple(float(value) for value in pose["command_leads_sec"])
+                    next_note = pose.get("next_note")
                     if (wrist.shape != (7,) or shape.shape != (20,) or len(leads) != 2
                             or not np.all(np.isfinite(wrist)) or not np.all(np.isfinite(shape))
-                            or not all(math.isfinite(value) and value >= 0 for value in leads)):
+                            or not all(math.isfinite(value) and value >= 0 for value in leads)
+                            or (next_note is not None
+                                and (not isinstance(next_note, int) or next_note not in KEY_NOTES))):
                         raise ValueError(f"invalid alternative pose for note {note}")
-                    alternatives.append((wrist, np.clip(shape, 0.0, 255.0).tolist(), leads))
+                    alternatives.append((wrist, np.clip(shape, 0.0, 255.0).tolist(),
+                                         leads, next_note))
                 if alternatives:
                     self.note_alternatives[note, finger] = alternatives
                 if "command_leads_sec" in values:
@@ -287,12 +291,15 @@ class PianoHandModel:
                     offset = tuple(float(value) for value in contact.get("offset_m", ()))
                     depth = float(contact.get("depth_m", 0))
                     seed = tuple(float(value) for value in contact.get("arm_seed_rad", ()))
+                    side = contact.get("side")
                     if (len(orientation) != 3 or len(offset) != 2 or depth <= 0
                             or len(seed) not in (0, 7)
+                            or side not in (None, *self.sides)
                             or not all(math.isfinite(value)
                                        for value in (*orientation, *offset, depth, *seed))):
                         raise ValueError(f"invalid contact hint for note {note}")
-                    self.note_contacts[note, finger] = orientation, offset, depth, seed
+                    contact_key = (note, finger) if side is None else (side, note, finger)
+                    self.note_contacts[contact_key] = orientation, offset, depth, seed
                 if "positions" not in values:
                     continue
                 values = values.get("positions")
@@ -551,6 +558,8 @@ class PianoHandModel:
                         prior_dev=0, prior_weight=2.0):
         """Find a pose that passes an isolated press and release."""
         for candidate in self.geometry_candidates(side, assignments, fixed_arm):
+            if candidate.detail.get("next_note") is not None:
+                continue
             ok, detail = self.dynamic_probe(
                 side, [event["note"] for event, _ in assignments],
                 candidate.arm_q, candidate.hand20)
@@ -594,12 +603,13 @@ class PianoHandModel:
         single = len(assignments) == 1
         if single:
             bounds = self.arm_limits[side]
-            for wrist, shape, leads in self.note_alternatives.get(expected[0], ()):
+            for wrist, shape, leads, next_note in self.note_alternatives.get(expected[0], ()):
                 if not np.all((wrist >= bounds[:, 0]) & (wrist <= bounds[:, 1])):
                     continue
                 ok, detail = self.check_group(side, expected, wrist, shape, strict=False)
                 attempt = {"side": side, "assignments": expected, "alternative_wrist": wrist.tolist(),
-                           "accepted": ok, "command_leads_sec": leads, **detail}
+                           "accepted": ok, "command_leads_sec": leads, "next_note": next_note,
+                           **detail}
                 self.geometry_diagnostics.append(attempt)
                 if ok:
                     candidates.append(Candidate(
@@ -616,7 +626,8 @@ class PianoHandModel:
                 if ok:
                     candidates.append(Candidate(
                         wrist.copy(), hand20, (0, 0, 0), 0.0, attempt))
-        contact = self.note_contacts.get(expected[0]) if single else None
+        contact = self.note_contacts.get((side, *expected[0]),
+                                         self.note_contacts.get(expected[0])) if single else None
         depth = contact[2] if contact else self.press_depth
         if single:
             stages = (
@@ -667,14 +678,14 @@ class PianoHandModel:
 
 
 class FingeringPlanner:
-    """Plan one right-hand part with a beam search over candidate fingers."""
+    """Search candidates per hand and verify paired tracks for a dual-hand plan."""
 
     def __init__(self, model, *, beam_width=8, candidate_limit=3,
                  prior_weight=2.0, travel_weight=1.0, arm_move_speed=SIM_ARM_SPEED,
                  arm_safety=None, arm_lead=0.10, start_padding=1.0,
                  press_lead=0.05, release_lead=0.07, hand_transition=0.04,
                  min_hand_interval=0.04, timing_tolerance=0.03,
-                 tempo_scale=1.0, fingering_mode="auto"):
+                 tempo_scale=1.0, fingering_mode="auto", planning_budget_sec=300.0):
         self.model = model
         self.beam_width = int(beam_width)
         self.candidate_limit = int(candidate_limit)
@@ -692,10 +703,13 @@ class FingeringPlanner:
         self.timing_tolerance = float(timing_tolerance)
         self.tempo_scale = float(tempo_scale)
         self.fingering_mode = fingering_mode
+        self.planning_budget_sec = float(planning_budget_sec)
         if fingering_mode not in ("fixed", "auto"):
             raise ValueError("fingering_mode must be fixed or auto")
         if not 0 < self.beam_width:
             raise ValueError("beam_width must be positive")
+        if not math.isfinite(self.planning_budget_sec) or self.planning_budget_sec <= 0:
+            raise ValueError("planning_budget_sec must be finite and positive")
         if not 0 < self.arm_move_speed:
             raise ValueError("arm_move_speed must be positive")
         if not math.isfinite(self.travel_weight) or self.travel_weight < 0:
@@ -707,28 +721,57 @@ class FingeringPlanner:
         self.model.hand_transition = self.hand_transition
         self.diagnostics = []
 
-    def plan(self, events, hand="right", left_max_note=59, source=None):
+    def _check_budget(self, stage):
+        if time.monotonic() - self.started >= self.planning_budget_sec:
+            raise PlanningError(
+                f"planning budget exhausted ({self.planning_budget_sec:g} s) during {stage}")
+
+    def plan(self, events, hand="right", left_max_note=59, source=None, joint_check=None):
         self.started = time.monotonic()
         self.diagnostics.clear()
         self.model.geometry_diagnostics.clear()
-        if hand not in ("left", "right"):
-            raise ValueError("hand must be left or right")
+        if hand not in ("left", "right", "both"):
+            raise ValueError("hand must be left, right or both")
         by_hand = events_by_hand(events, left_max_note)
-        other = "left" if hand == "right" else "right"
-        if by_hand[other]:
-            raise ValueError(
-                f"{other} hand events are present; this phase plans the right hand only. "
-                "Use import_pianovam.py --hand right or filter the events.")
-        selected = by_hand[hand]
-        if not selected:
-            raise ValueError(f"no {hand}-hand events")
+        sides = ("left", "right") if hand == "both" else (hand,)
+        for side, selected in by_hand.items():
+            if side not in sides and selected:
+                raise ValueError(f"{side} hand events are present; choose both hands or filter the score")
+            if side in sides and not selected:
+                raise ValueError(f"no {side}-hand events")
         if self.fingering_mode == "fixed":
-            missing = [event["id"] for event in selected if event.get("finger") is None]
+            missing = [event["id"] for event in events if event.get("finger") is None]
             if missing:
                 raise ValueError(f"fixed fingering requires a finger for each event: {missing}")
-        groups = group_events(selected, self.model.chord_epsilon)
-        final = self._plan_hand(hand, groups)
-        return self._build_plan(hand, final, source, left_max_note)
+        if hand != "both":
+            groups = group_events(by_hand[hand], self.model.chord_epsilon)
+            final = self._plan_hand(hand, groups)
+            return self._build_plan(hand, final, source, left_max_note)
+        if joint_check is None:
+            raise ValueError("both-hand planning requires a joint playback checker")
+        validate_physical_key_spans(
+            ((event["start"], event["end"], event["note"]) for event in events),
+            str(source) if source is not None else "<events>")
+        beams = [
+            self._plan_hand(side, group_events(by_hand[side], self.model.chord_epsilon),
+                            return_beam=True)
+            for side in sides
+        ]
+        pairs = sorted(itertools.product(*beams), key=lambda pair: sum(state["cost"] for state in pair))
+        for index, pair in enumerate(pairs):
+            self._check_budget("joint playback")
+            left, right = [self._build_plan(side, state, source, left_max_note)
+                           for side, state in zip(sides, pair)]
+            plan = {**right, "metadata": {**right["metadata"], "hand": "both"},
+                    "hands": {**left["hands"], **right["hands"]}}
+            report = joint_check(plan)
+            self.diagnostics.append({"stage": "joint_playback", "pair": index,
+                                     "report": report})
+            self._check_budget("joint playback")
+            if report["passed"]:
+                return plan
+        raise PlanningError(
+            f"joint playback rejected all {len(pairs)} candidate pairs; see joint_playback diagnostics")
 
     def _assignments(self, group, active_fingers):
         lists = []
@@ -754,9 +797,13 @@ class FingeringPlanner:
             "checkpoint": None,
         }
 
-    def _plan_hand(self, side, groups):
+    def _plan_hand(self, side, groups, *, return_beam=False):
         beam = [self._initial_state(side)]
-        for group in groups:
+        for group_index, group in enumerate(groups):
+            stage = f"{side} hand at {group['start']:.3f}s"
+            self._check_budget(stage)
+            following = groups[group_index + 1]["notes"] if group_index + 1 < len(groups) else ()
+            next_notes = {event["note"] for event in following}
             next_states = []
             failures = set()
             pruned = 0
@@ -773,7 +820,11 @@ class FingeringPlanner:
                         continue
                     candidates = self.model.geometry_candidates(side, after, state["arm"])
                     if not active:
-                        candidates += self.model.geometry_candidates(side, after)
+                        candidates += [
+                            candidate for candidate in self.model.geometry_candidates(side, after)
+                            if candidate.detail.get("next_note") is None
+                            or candidate.detail["next_note"] in next_notes]
+                    self._check_budget(stage)
                     if not candidates:
                         failures.add("held-note contact" if active else "no reachable finger/arm pose")
                     if state["path"]:
@@ -792,10 +843,9 @@ class FingeringPlanner:
                         if self._outside_beam(next_states, assignment_cost + candidate.cost):
                             pruned += 1
                             continue
-                        if time.monotonic() - self.started > 300:
-                            raise PlanningError("planning budget exhausted (300 s)")
                         path, reason = self._schedule_candidate(
                             side, group, state, assignment, after, candidate)
+                        self._check_budget(stage)
                         if reason != "insufficient motion time":
                             trials += 1
                         if path is None:
@@ -819,7 +869,7 @@ class FingeringPlanner:
                 self.diagnostics.append({"start_sec": group["start"], "reason": "beam cost bound",
                                          "discarded": pruned})
             beam = sorted(next_states, key=lambda item: item["cost"])[:self.beam_width]
-        return min(beam, key=lambda item: item["cost"])
+        return beam if return_beam else min(beam, key=lambda item: item["cost"])
 
     def _outside_beam(self, states, cost):
         if len(states) < self.beam_width:
@@ -1175,6 +1225,7 @@ class FingeringPlanner:
                 "planner": {
                     "beam_width": self.beam_width,
                     "candidate_limit": self.candidate_limit,
+                    "planning_budget_sec": self.planning_budget_sec,
                     "prior_weight": self.prior_weight,
                     "arm_move_speed": self.arm_move_speed,
                     "arm_safety": self.arm_safety,

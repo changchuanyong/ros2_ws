@@ -25,7 +25,7 @@ except ImportError:  # source-tree use before sourcing an install
     get_package_share_directory = None
 
 from rm_mujoco.fingering import FingeringPlanner, PianoHandModel
-from rm_mujoco.performance import load_events, summarize_plan, write_plan
+from rm_mujoco.performance import load_events, summarize_plan, validate_plan, write_plan
 
 
 def _default_package():
@@ -58,12 +58,14 @@ def main(argv=None):
                         help="rm_mujoco source or share directory")
     parser.add_argument("--scene-config", type=Path, default=None)
     parser.add_argument("--pose-file", type=Path, default=None,
-                        help="right-hand READY/PRESS calibration YAML")
-    parser.add_argument("--hand", choices=("left", "right"), default="right")
+                        help="READY/PRESS calibration YAML; dual planning defaults to the simulation poses")
+    parser.add_argument("--hand", choices=("left", "right", "both"), default="right")
     parser.add_argument("--fingering-mode", choices=("auto", "fixed"), default="auto")
     parser.add_argument("--left-max-note", type=int, default=59)
     parser.add_argument("--beam-width", type=int, default=8)
     parser.add_argument("--candidate-limit", type=int, default=3)
+    parser.add_argument("--planning-budget-sec", type=float, default=300.0,
+                        help="wall-clock search and joint verification budget")
     parser.add_argument("--prior-weight", type=float, default=2.0)
     parser.add_argument("--travel-weight", type=float, default=1.0)
     parser.add_argument("--tempo-scale", type=float, default=1.0)
@@ -94,7 +96,10 @@ def main(argv=None):
         events = load_events(args.score)
         package = args.package or _default_package()
         scene_config = args.scene_config or package / "config/piano_scene.yaml"
-        pose_file = args.pose_file or _default_pose_file()
+        pose_file = args.pose_file
+        if pose_file is None:
+            pose_file = (package / "config/right_hand_piano_sim.yaml"
+                         if args.hand == "both" else _default_pose_file())
         model = PianoHandModel(package, scene_config, pose_file)
         planner = FingeringPlanner(
             model, beam_width=args.beam_width,
@@ -108,10 +113,20 @@ def main(argv=None):
             hand_transition=args.hand_transition,
             min_hand_interval=args.min_hand_interval,
             timing_tolerance=args.timing_tolerance,
-            tempo_scale=args.tempo_scale, fingering_mode=args.fingering_mode)
+            tempo_scale=args.tempo_scale, fingering_mode=args.fingering_mode,
+            planning_budget_sec=args.planning_budget_sec)
+        def joint_check(candidate):
+            from run_performance import PlanRunner
+
+            validate_plan(candidate)
+            runner = PlanRunner(
+                candidate, package, scene_config, package / "models/rm_75_6fb_v_dual_l20.xml",
+                args.tempo_scale, args.timing_tolerance, None, None)
+            return runner.run()
+
         plan = planner.plan(
             events["events"], hand=args.hand, left_max_note=args.left_max_note,
-            source=args.score)
+            source=args.score, joint_check=joint_check if args.hand == "both" else None)
         write_plan(args.output, plan)
         status = 0
     except (OSError, RuntimeError, ValueError) as error:

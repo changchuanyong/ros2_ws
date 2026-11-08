@@ -56,6 +56,23 @@ def test_valid_plan_is_accepted():
     assert validate_plan(_plan())["format"] == "piano_performance/1"
 
 
+def test_two_hands_can_press_different_keys_at_the_same_time():
+    plan = _plan()
+    left = _hand()
+    left["events"][0].update(id=2, note=48)
+    plan["hands"]["left"] = left
+    assert set(validate_plan(plan)["hands"]) == {"left", "right"}
+
+
+def test_two_hands_cannot_hold_the_same_physical_key_concurrently():
+    plan = _plan()
+    left = _hand()
+    left["events"][0]["id"] = 2
+    plan["hands"]["left"] = left
+    with pytest.raises(ValueError, match="overlapping events on physical key 60"):
+        validate_plan(plan)
+
+
 def test_arm_move_over_a_held_note_is_rejected():
     hand = _hand()
     hand["arm_waypoints"][1]["move_after_sec"] = 0.9

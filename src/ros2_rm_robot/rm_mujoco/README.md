@@ -168,7 +168,21 @@ ros2 run rm_mujoco run_performance.py \
   `same_hand_chords`、`missing`/`unexpected`、错指/意外接触、
   `arm_moves_over_held_notes`）、`played_keys.mid` 和
   `raw_contacts.json`；`passed` 只在所有期望键事件都在容差内且无错键时成立。
-- 当前验收范围是右手。左手没有独立标定，暂不用于真机或正式验收。
+- 双手输入保留两侧事件的 `hand` 和 `finger`。固定模式要求每音有指法，
+  自动模式可换指，报告保留输入和实际采用的指法。
+  双手模式默认使用本包的 `config/right_hand_piano_sim.yaml`。
+  规划器将两侧候选放入同一个 MuJoCo 场景复验，联合通过后才写出计划。
+  `*.diagnostics.json` 保留候选失败原因；双手回放报告额外记录起音前
+  实际接触的手别、手指和时间。双手同时占用同一个物理键的输入会被拒绝。
+  `--planning-budget-sec` 设置搜索及联合验收的实际耗时预算，默认 300 秒。
+
+  ```bash
+  ros2 run rm_mujoco plan_performance.py --score /tmp/duet.fingering.yaml \
+    --hand both --fingering-mode fixed --tempo-scale 1 --planning-budget-sec 900 \
+    --output /tmp/duet.performance.yaml &&
+  ros2 run rm_mujoco run_performance.py --plan /tmp/duet.performance.yaml \
+    --output /tmp/duet_sim
+  ```
 - 单音、E4+G4 两音和弦 + 重复 G4 短旋律、以及更宽的
   C4→D4→E4→G4 换位旋律都已通过 MuJoCo 回放（`test_fingering.py`）。
   宽旋律是 6 个音、13 条手臂轨迹、11 个手态；`report.passed=true`，

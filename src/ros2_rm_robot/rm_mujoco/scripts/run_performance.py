@@ -30,7 +30,7 @@ except ImportError:  # source-tree use before sourcing an install
 
 from rm_mujoco.keyboard import KEY_NOTES, KeyEvents, KeyHighlight, key_joint_name
 from rm_mujoco.l20_joint_mapping import HAND_JOINT_SUFFIXES, command_positions
-from rm_mujoco.performance import load_plan, maximum_live_keys
+from rm_mujoco.performance import FINGERS, load_plan, maximum_live_keys
 from rm_mujoco.performance_runtime import (
     ArmTrack, HandTrack, KeyTravelMonitor, KEY_LIMIT_TOLERANCE_RAD, KEY_REBOUND_TOLERANCE_RAD,
     note_duration_tolerance,
@@ -43,6 +43,7 @@ class PlanRunner:
                  timing_tolerance, press_deg, release_deg, snapshots=None,
                  camera="keys"):
         self.plan = plan
+        self.dual = len(plan["hands"]) == 2
         self.package = Path(package)
         self.tempo = float(tempo_scale)
         self.timing_tolerance = float(timing_tolerance)
@@ -60,7 +61,7 @@ class PlanRunner:
             self.model.geom(i).name or self.model.body(self.model.geom_bodyid[i]).name
             for i in range(self.model.ngeom)]
         self.key_re = re.compile(r"^piano_key_(\d+)(?:_rear)?$")
-        self.baseline = None
+        self.baseline = self._contact_set() if self.dual else None
         self.arm_qpos = {}
         self.arm_act = {}
         self.hand_qpos = {}
@@ -70,7 +71,8 @@ class PlanRunner:
         self._build_tracks()
         self.data.time = 0.0
         m.mj_forward(self.model, self.data)
-        self.baseline = self._contact_set()
+        if self.baseline is None:
+            self.baseline = self._contact_set()
         self.key_events = KeyEvents(
             self.model, press_deg=press_deg, release_deg=release_deg)
         self.expected = self._expected_events()
@@ -104,6 +106,9 @@ class PlanRunner:
         self.raw_contacts = []
         self._active_contacts = set()
         self.active_key_notes = set()
+        self.active_onsets = {}
+        self.recent_key_contacts = {}
+        self.onset_contacts = {}
         self.edges = []
         self.snapshot_times = self._snapshot_times()
         self.next_snapshot = 0
@@ -182,9 +187,12 @@ class PlanRunner:
     def _classify(self):
         keys = set()
         other = set()
-        for pair in self._contact_set() - self.baseline:
+        for pair in self._contact_set():
             ga, gb = self.geom_names[pair[0]], self.geom_names[pair[1]]
             sa, sb = ga.split("_")[0], gb.split("_")[0]
+            if pair in self.baseline and not (
+                    self.dual and {sa, sb} == {"left", "right"}):
+                continue
             if sa in ("left", "right") and sb in ("left", "right"):
                 if sa != sb:
                     other.add(tuple(sorted((ga, gb))))
@@ -200,11 +208,11 @@ class PlanRunner:
         return keys, other
 
     def _expected_finger(self, note, time_sec):
-        for event in self.expected_by_note.get(note, ()):
-            if event["on"] - self.contact_tolerance <= time_sec <= \
-                    event["off"] + self.contact_tolerance:
-                return event
-        return None
+        onset = self.active_onsets.get(note, time_sec)
+        return min((event for event in self.expected_by_note.get(note, ())
+                    if event["on"] - self.contact_tolerance <= time_sec <=
+                    event["off"] + self.contact_tolerance),
+                   key=lambda event: abs(event["on"] - onset), default=None)
 
     def _check_contacts(self, time_sec):
         keys, other = self._classify()
@@ -258,6 +266,8 @@ class PlanRunner:
             [waypoint["time_sec"] for hand in self.plan["hands"].values()
              for waypoint in hand["arm_waypoints"]] or [0.0]) * self.tempo
         end = max(last_event, last_state, last_arm) + 0.6
+        if self.dual:
+            self._check_contacts(self.data.time)
         while self.data.time < end:
             for side, track in self.arm_tracks.items():
                 self.data.ctrl[self.arm_act[side]] = track.at(self.data.time)
@@ -268,13 +278,29 @@ class PlanRunner:
             m.mj_step(self.model, self.data)
             if self.data.time <= before or self.data.warning.number.any():
                 raise RuntimeError("unstable MuJoCo trajectory")
-            for time_sec, edge, note in self.key_events.update(self.data):
+            step_edges = self.key_events.update(self.data)
+            for time_sec, edge, note in step_edges:
                 self.edges.append((float(time_sec), edge, int(note)))
                 if edge == "on":
                     self.active_key_notes.add(int(note))
+                    self.active_onsets[note] = time_sec
                 else:
                     self.active_key_notes.discard(int(note))
+                    self.active_onsets.pop(note, None)
+                    self.recent_key_contacts.pop(note, None)
             self._check_contacts(self.data.time)
+            if self.dual:
+                current = {}
+                for contact in self._active_contacts:
+                    current.setdefault(contact[1], []).append(contact)
+                for note, contacts in current.items():
+                    self.recent_key_contacts[note] = self.data.time, sorted(contacts)
+                for time_sec, edge, note in step_edges:
+                    last = self.recent_key_contacts.get(note)
+                    if edge == "on" and last and time_sec - last[0] <= self.contact_tolerance:
+                        # The passive key can cross the press threshold after the
+                        # fingertip has separated. Attribute the last recent strike.
+                        self.onset_contacts[time_sec, note] = last
             angles = self.key_travel.observe(self.data)
             self.key_angle_track.append({
                 "time_sec": round(self.data.time, 6),
@@ -365,6 +391,17 @@ class PlanRunner:
                 "onset_error": onset_error, "release_error": release_error,
                 "duration_error": duration_error, "duration_tolerance_sec": duration_tolerance,
             }
+            if self.dual:
+                contact_time, contacts = self.onset_contacts.get((start, event["note"]), (None, ()))
+                owners = sorted({side for side, _, _ in contacts})
+                fingers = sorted({(side, finger) for side, _, geom in contacts
+                                  for finger in FINGERS if geom.startswith(f"{side}_{finger}_")})
+                record["observed_hands"] = owners
+                record["observed_contact_sec"] = contact_time
+                record["observed_fingers"] = [
+                    {"side": side, "finger": finger} for side, finger in fingers]
+                if owners != [event["side"]] or (event["side"], event["finger"]) not in fingers:
+                    extra.append({**record, "kind": "note_ownership"})
             matched.append(record)
             if (abs(onset_error) > self.timing_tolerance
                     or abs(release_error) > self.timing_tolerance):
@@ -378,25 +415,30 @@ class PlanRunner:
                                   "duration": duration, "kind": "extra"})
         return matched, missing, extra, onset_errors, release_errors
 
-    def _arm_moves_over_held(self):
+    def _arm_moves_over_held(self, observed):
         problems = []
+        held_events = [(event["side"], event["note"], event["on"], event["off"], "score")
+                       for event in self.expected]
+        if self.dual:
+            held_events.extend((event["side"], event["note"], event["observed_on"],
+                                event["observed_off"], "observed") for event in observed)
         for side, hand in self.plan["hands"].items():
             for index, waypoint in enumerate(hand["arm_waypoints"]):
                 if index == 0:
                     continue
                 start = float(waypoint["move_after_sec"]) * self.tempo
                 end = float(waypoint["time_sec"]) * self.tempo
-                for event in self.expected:
-                    if event["side"] == side and event["on"] < end and event["off"] > start:
+                for owner, note, on, off, source in held_events:
+                    if owner == side and on < end - 1e-9 and off > start + 1e-9:
                         problems.append({
-                            "side": side, "waypoint": index, "note": event["note"],
-                            "move": [start, end], "held": [event["on"], event["off"]]})
+                            "side": side, "waypoint": index, "note": note,
+                            "move": [start, end], "held": [on, off], "source": source})
         return problems
 
     def _report(self):
         spans = self._actual_spans()
         matched, missing, extra, onset_errors, release_errors = self._match_events(spans)
-        arm_problems = self._arm_moves_over_held()
+        arm_problems = self._arm_moves_over_held(matched)
         live = {
             side: maximum_live_keys(hand["events"])
             for side, hand in self.plan["hands"].items()}
@@ -417,9 +459,11 @@ class PlanRunner:
         active_at_end = sorted(self.active_key_notes)
         limit_details = self.key_travel.violations()
         angle_violations = [item["note"] for item in limit_details]
+        fixed_fingering = self.plan["metadata"].get("fingering_mode") == "fixed"
         passed = (not missing and not extra and not arm_problems
                   and not self.unexpected_contacts and not self.wrong_finger_contacts
                   and not active_at_end and not angle_violations
+                  and not (fixed_fingering and deviations)
                   and all(value <= 5 for value in live.values()))
         report = {
             "passed": passed,
@@ -470,7 +514,7 @@ class PlanRunner:
             "wrong_finger_contacts": sorted(str(item) for item in self.wrong_finger_contacts),
             "fingering_deviations": deviations,
             "raw_contact_transitions": len(self.raw_contacts),
-            "left_hand": "not used; this phase plans the right hand only"
+            "left_hand": "not used"
             if "left" not in self.plan["hands"] else "simulated from plan",
         }
         return report

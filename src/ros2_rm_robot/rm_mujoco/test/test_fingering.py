@@ -15,7 +15,7 @@ WIDE_MELODY = PACKAGE / "test/fixtures/wide_melody.fingering.yaml"
 sys.path.insert(0, str(PACKAGE))
 sys.path.insert(0, str(PACKAGE / "scripts"))
 
-from rm_mujoco.fingering import FingeringPlanner, PianoHandModel  # noqa: E402
+from rm_mujoco.fingering import FingeringPlanner, PianoHandModel, PlanningError  # noqa: E402
 from rm_mujoco.performance_runtime import HandTrack, KeyTravelMonitor  # noqa: E402
 
 
@@ -43,6 +43,18 @@ def test_finger_order_prefers_the_prior_then_pitch(hand_model):
     assert hand_model.finger_order(60, "thumb")[0] == "thumb"
     assert hand_model.finger_order(60, None)[0] == "thumb"
     assert hand_model.finger_order(67, "little")[0] == "little"
+
+
+def test_budget_expiry_identifies_the_unfinished_hand(hand_model, monkeypatch):
+    from types import SimpleNamespace
+
+    from rm_mujoco import fingering
+
+    times = iter((0.0, 1.0))
+    monkeypatch.setattr(fingering, "time", SimpleNamespace(monotonic=lambda: next(times)))
+    planner = FingeringPlanner(hand_model, planning_budget_sec=0.5)
+    with pytest.raises(PlanningError, match=r"budget exhausted \(0.5 s\) during right hand"):
+        planner.plan([_event()])
 
 
 def test_a_short_command_starts_from_the_interrupted_value():
@@ -102,6 +114,34 @@ def test_single_note_plan_and_mujoco_playback(hand_model):
     assert report["passed"], report
     assert len(report["observed"]) == 1
     assert report["observed"][0]["note"] == 60
+
+
+def test_both_hands_plan_requires_observed_ownership_in_shared_playback(hand_model):
+    from rm_mujoco.performance import validate_plan
+    from run_performance import PlanRunner
+
+    events = [
+        _event(note=72, finger="index", start=0.0, end=0.821),
+        {**_event(note=48, finger="index", start=0.0, end=0.7, event_id=2), "hand": "left"},
+    ]
+    reports = []
+
+    def check(plan):
+        validate_plan(plan)
+        runner = PlanRunner(plan, PACKAGE, SCENE, MODEL, 1.0, 0.03, None, None)
+        report = runner.run()
+        reports.append(report)
+        return report
+
+    planner = FingeringPlanner(hand_model, beam_width=4, fingering_mode="fixed")
+    plan = planner.plan(events, hand="both", joint_check=check)
+    assert set(plan["hands"]) == {"left", "right"}
+    assert reports[-1]["passed"]
+    assert [(item["note"], item["observed_hands"]) for item in reports[-1]["observed"]] == [
+        (48, ["left"]), (72, ["right"]),
+    ]
+    for item in reports[-1]["observed"]:
+        assert {"side": item["side"], "finger": "index"} in item["observed_fingers"]
 
 
 def test_calibrated_chord_and_melody_pass_in_mujoco():
