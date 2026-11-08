@@ -40,12 +40,11 @@ def _default_package():
 def _default_pose_file():
     if get_package_share_directory is not None:
         try:
-            return Path(get_package_share_directory("rm_piano_player")) / \
-                "config/right_hand_ode_to_joy.yaml"
+            return Path(get_package_share_directory("rm_mujoco")) / \
+                "config/right_hand_piano_sim.yaml"
         except Exception:
             pass
-    return Path(__file__).resolve().parents[2] / \
-        "rm_piano_player/config/right_hand_ode_to_joy.yaml"
+    return Path(__file__).resolve().parents[1] / "config/right_hand_piano_sim.yaml"
 
 
 def main(argv=None):
@@ -96,11 +95,16 @@ def main(argv=None):
         events = load_events(args.score)
         package = args.package or _default_package()
         scene_config = args.scene_config or package / "config/piano_scene.yaml"
-        pose_file = args.pose_file
-        if pose_file is None:
-            pose_file = (package / "config/right_hand_piano_sim.yaml"
-                         if args.hand == "both" else _default_pose_file())
+        pose_file = args.pose_file or _default_pose_file()
         model = PianoHandModel(package, scene_config, pose_file)
+
+        def progress(**update):
+            print(
+                f"PLAN {update['side']} group {update['group_index'] + 1}/"
+                f"{update['group_count']} onset={update['start_sec']:.3f}s "
+                f"kept={update['beam_width']}/{update['candidate_count']} "
+                f"elapsed={update['elapsed_sec']:.1f}s", flush=True)
+
         planner = FingeringPlanner(
             model, beam_width=args.beam_width,
             candidate_limit=args.candidate_limit,
@@ -114,7 +118,8 @@ def main(argv=None):
             min_hand_interval=args.min_hand_interval,
             timing_tolerance=args.timing_tolerance,
             tempo_scale=args.tempo_scale, fingering_mode=args.fingering_mode,
-            planning_budget_sec=args.planning_budget_sec)
+            planning_budget_sec=args.planning_budget_sec, progress=progress)
+
         def joint_check(candidate):
             from run_performance import PlanRunner
 

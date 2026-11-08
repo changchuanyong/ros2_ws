@@ -1,0 +1,6 @@
+format: piano_fingering/1
+source: synthetic G4 exercise with different durations
+events:
+  - {id: 1, hand: right, start: 1.0, end: 1.4, note: 67, velocity: 74, finger: little}
+  - {id: 2, hand: right, start: 2.0, end: 2.8, note: 67, velocity: 74, finger: little}
+  - {id: 3, hand: right, start: 3.4, end: 3.7, note: 67, velocity: 74, finger: little}

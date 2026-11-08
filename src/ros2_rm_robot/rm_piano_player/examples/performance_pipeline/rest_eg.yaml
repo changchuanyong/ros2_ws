@@ -1,0 +1,6 @@
+format: piano_fingering/1
+source: synthetic E4-G4 exercise with a long rest
+events:
+  - {id: 1, hand: right, start: 1.0, end: 1.6, note: 64, velocity: 76, finger: middle}
+  - {id: 2, hand: right, start: 3.0, end: 3.4, note: 67, velocity: 74, finger: little}
+  - {id: 3, hand: right, start: 4.0, end: 4.4, note: 67, velocity: 74, finger: little}

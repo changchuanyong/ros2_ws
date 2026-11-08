@@ -47,8 +47,9 @@ install(TARGETS
 # Windows source copies may lack executable bits; symlink-install preserves them.
 set_property(DIRECTORY APPEND PROPERTY CMAKE_CONFIGURE_DEPENDS
   "${CMAKE_CURRENT_SOURCE_DIR}/src/l20_right_hand_piano.py"
-  "${CMAKE_CURRENT_SOURCE_DIR}/src/l20_right_hand_speed_test.py")
-file(COPY src/l20_right_hand_piano.py src/l20_right_hand_speed_test.py
+  "${CMAKE_CURRENT_SOURCE_DIR}/src/l20_right_hand_speed_test.py"
+  "${CMAKE_CURRENT_SOURCE_DIR}/src/piano_performance.py")
+file(COPY src/l20_right_hand_piano.py src/l20_right_hand_speed_test.py src/piano_performance.py
   DESTINATION "${CMAKE_CURRENT_BINARY_DIR}/scripts"
   FILE_PERMISSIONS OWNER_READ OWNER_WRITE OWNER_EXECUTE GROUP_READ GROUP_EXECUTE
                    WORLD_READ WORLD_EXECUTE
@@ -58,6 +59,7 @@ install(PROGRAMS
   src/midi_feedback_monitor.py
   "${CMAKE_CURRENT_BINARY_DIR}/scripts/l20_right_hand_piano.py"
   "${CMAKE_CURRENT_BINARY_DIR}/scripts/l20_right_hand_speed_test.py"
+  "${CMAKE_CURRENT_BINARY_DIR}/scripts/piano_performance.py"
   DESTINATION lib/${PROJECT_NAME}
 )
 
@@ -71,9 +73,15 @@ install(FILES README_CN.md
   DESTINATION share/${PROJECT_NAME}
 )
 
+install(DIRECTORY examples/performance_pipeline
+  DESTINATION share/${PROJECT_NAME}/examples
+)
+install(FILES PERFORMANCE_PIPELINE.md DESTINATION share/${PROJECT_NAME})
+
 if(BUILD_TESTING)
   find_package(ament_cmake_pytest REQUIRED)
   ament_add_pytest_test(test_midi_file test/test_midi_file.py TIMEOUT 30)
+  ament_add_pytest_test(test_performance_pipeline test/test_performance_pipeline.py TIMEOUT 60)
 endif()
 
 ament_package()

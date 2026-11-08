@@ -45,6 +45,16 @@ def test_finger_order_prefers_the_prior_then_pitch(hand_model):
     assert hand_model.finger_order(67, "little")[0] == "little"
 
 
+def test_short_f5_alternative_has_a_ranking_penalty():
+    model = PianoHandModel(PACKAGE, SCENE, SIM_POSE)
+    group = [(_event(note=77, finger="ring"), "ring")]
+    alternatives = [item for item in model.geometry_candidates("right", group)
+                    if "alternative_wrist" in item.detail]
+    preferred = next(item for item in alternatives if item.detail["next_note"] is None)
+    fallback = next(item for item in alternatives if item.detail["next_note"] == 76)
+    assert fallback.cost > preferred.cost
+
+
 def test_budget_expiry_identifies_the_unfinished_hand(hand_model, monkeypatch):
     from types import SimpleNamespace
 
@@ -105,7 +115,10 @@ def test_single_note_plan_and_mujoco_playback(hand_model):
     from rm_mujoco.performance import validate_plan
     from run_performance import PlanRunner
 
-    planner = FingeringPlanner(hand_model, beam_width=2, candidate_limit=2)
+    progress = []
+    planner = FingeringPlanner(
+        hand_model, beam_width=2, candidate_limit=2,
+        progress=lambda **update: progress.append(update))
     plan = planner.plan([_event()], source="single-note-test")
     validate_plan(plan)
     runner = PlanRunner(
@@ -114,6 +127,16 @@ def test_single_note_plan_and_mujoco_playback(hand_model):
     assert report["passed"], report
     assert len(report["observed"]) == 1
     assert report["observed"][0]["note"] == 60
+    assert len(progress) == 1
+    assert progress[0]["group_count"] == 1
+    assert progress[0]["beam_width"] >= 1
+
+
+def test_direct_planning_defaults_to_simulation_poses(monkeypatch):
+    import plan_performance
+
+    monkeypatch.setattr(plan_performance, "get_package_share_directory", None)
+    assert plan_performance._default_pose_file() == SIM_POSE
 
 
 def test_both_hands_plan_requires_observed_ownership_in_shared_playback(hand_model):
@@ -190,3 +213,13 @@ def test_wide_melody_with_calibrated_c4_passes():
     c4_edges = [edge for edge in runner.edges if edge[2] == 60]
     assert [edge[1] for edge in c4_edges] == ["on", "off"]
     assert report["all_key_angle_max_deg"]["65"] < 2.102404550778664
+
+
+def test_observed_spans_keep_extra_and_unmatched_notes():
+    from run_performance import observed_note_spans
+
+    edges = [(1.0, "on", 60), (1.25, "on", 61), (1.5, "off", 60),
+             (1.75, "on", 62), (2.0, "off", 61)]
+    assert observed_note_spans(edges) == [(1.0, 60, 0.5), (1.25, 61, 0.75)]
+    assert observed_note_spans(edges, end_time=2.25) == [
+        (1.0, 60, 0.5), (1.25, 61, 0.75), (1.75, 62, 0.5)]

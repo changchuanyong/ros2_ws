@@ -257,14 +257,16 @@ class PianoHandModel:
                     shape = np.asarray(pose["positions"], dtype=float)
                     leads = tuple(float(value) for value in pose["command_leads_sec"])
                     next_note = pose.get("next_note")
+                    cost_penalty = float(pose.get("cost_penalty", 0.0))
                     if (wrist.shape != (7,) or shape.shape != (20,) or len(leads) != 2
                             or not np.all(np.isfinite(wrist)) or not np.all(np.isfinite(shape))
                             or not all(math.isfinite(value) and value >= 0 for value in leads)
+                            or not math.isfinite(cost_penalty) or cost_penalty < 0
                             or (next_note is not None
                                 and (not isinstance(next_note, int) or next_note not in KEY_NOTES))):
                         raise ValueError(f"invalid alternative pose for note {note}")
                     alternatives.append((wrist, np.clip(shape, 0.0, 255.0).tolist(),
-                                         leads, next_note))
+                                         leads, next_note, cost_penalty))
                 if alternatives:
                     self.note_alternatives[note, finger] = alternatives
                 if "command_leads_sec" in values:
@@ -603,17 +605,19 @@ class PianoHandModel:
         single = len(assignments) == 1
         if single:
             bounds = self.arm_limits[side]
-            for wrist, shape, leads, next_note in self.note_alternatives.get(expected[0], ()):
+            for wrist, shape, leads, next_note, cost_penalty in self.note_alternatives.get(expected[0], ()):
                 if not np.all((wrist >= bounds[:, 0]) & (wrist <= bounds[:, 1])):
                     continue
                 ok, detail = self.check_group(side, expected, wrist, shape, strict=False)
                 attempt = {"side": side, "assignments": expected, "alternative_wrist": wrist.tolist(),
                            "accepted": ok, "command_leads_sec": leads, "next_note": next_note,
+                           "cost_penalty": cost_penalty,
                            **detail}
                 self.geometry_diagnostics.append(attempt)
                 if ok:
                     candidates.append(Candidate(
-                        wrist.copy(), shape, (0, 0, 0), 0.5 * detail.get("penalty", 0), attempt))
+                        wrist.copy(), shape, (0, 0, 0),
+                        cost_penalty + 0.5 * detail.get("penalty", 0), attempt))
         chord = "+".join(sorted(fingers, key=FINGERS.index))
         if chord in self.chord_arm_seeds:
             wrist = self.chord_arm_seeds[chord]
@@ -685,8 +689,10 @@ class FingeringPlanner:
                  arm_safety=None, arm_lead=0.10, start_padding=1.0,
                  press_lead=0.05, release_lead=0.07, hand_transition=0.04,
                  min_hand_interval=0.04, timing_tolerance=0.03,
-                 tempo_scale=1.0, fingering_mode="auto", planning_budget_sec=300.0):
+                 tempo_scale=1.0, fingering_mode="auto", planning_budget_sec=300.0,
+                 progress=None):
         self.model = model
+        self.progress = progress
         self.beam_width = int(beam_width)
         self.candidate_limit = int(candidate_limit)
         self.prior_weight = float(prior_weight)
@@ -869,6 +875,11 @@ class FingeringPlanner:
                 self.diagnostics.append({"start_sec": group["start"], "reason": "beam cost bound",
                                          "discarded": pruned})
             beam = sorted(next_states, key=lambda item: item["cost"])[:self.beam_width]
+            if self.progress is not None:
+                self.progress(
+                    side=side, group_index=group_index, group_count=len(groups),
+                    start_sec=group["start"], candidate_count=len(next_states),
+                    beam_width=len(beam), elapsed_sec=time.monotonic() - self.started)
         return beam if return_beam else min(beam, key=lambda item: item["cost"])
 
     def _outside_beam(self, states, cost):

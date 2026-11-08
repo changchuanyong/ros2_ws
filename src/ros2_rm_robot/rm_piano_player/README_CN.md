@@ -1,5 +1,8 @@
 # RM75-6FB-V 双臂双 L20 MIDI 钢琴播放器
 
+通用换曲、分阶段仿真与逐音评分见 [通用换曲与评分框架](PERFORMANCE_PIPELINE.md)。
+新入口复用逐音符规划器，提供 MIDI/YAML 输入、三组短练习和 Jetson 验收命令。
+
 该功能包实现 RoboPianist 风格的第一阶段实机链路：88 键 MIDI 曲目、左右 RM75 MoveIt 规划、左右 L20 手指命令和数字钢琴 MIDI 反馈。官方 RoboPianist 的 Shadow Hand RL 策略不直接适用于 RM75+L20，本包先实现固定 MIDI 曲目播放。
 
 ## 构建

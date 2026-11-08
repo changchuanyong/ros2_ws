@@ -38,6 +38,22 @@ from rm_mujoco.performance_runtime import (
 from rm_mujoco.scene import build_model, load_layout
 
 
+def observed_note_spans(edges, end_time=None):
+    pressed = {}
+    spans = []
+    for time_sec, edge, note in edges:
+        if edge == "on":
+            pressed[note] = time_sec
+        elif note in pressed:
+            start = pressed.pop(note)
+            spans.append((start, note, time_sec - start))
+    if end_time is not None:
+        spans.extend(
+            (start, note, max(0.0, end_time - start))
+            for note, start in pressed.items())
+    return spans
+
+
 class PlanRunner:
     def __init__(self, plan, package, scene_config, model_path, tempo_scale,
                  timing_tolerance, press_deg, release_deg, snapshots=None,
@@ -330,15 +346,7 @@ class PlanRunner:
         return self._report()
 
     def _actual_spans(self):
-        pressed = {}
-        spans = []
-        for time_sec, edge, note in self.edges:
-            if edge == "on":
-                pressed[note] = time_sec
-            elif note in pressed:
-                start = pressed.pop(note)
-                spans.append((start, note, time_sec - start))
-        return spans
+        return observed_note_spans(self.edges)
 
     def _match_events(self, spans):
         """Match expected and observed notes one-to-one by the smallest time error.
@@ -605,8 +613,7 @@ def main(argv=None):
             encoding="utf-8")
         write_observed_midi(
             args.output / "played_keys.mid",
-            [(item["observed_on"], item["note"],
-              item["observed_off"] - item["observed_on"]) for item in report["observed"]])
+            observed_note_spans(runner.edges, end_time=runner.data.time))
         print(
             f"RESULT passed={report['passed']} expected={len(report['expected_events'])} "
             f"observed={len(report['observed'])} missing={len(report['missing'])} "

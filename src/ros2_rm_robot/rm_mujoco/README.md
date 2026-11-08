@@ -168,13 +168,19 @@ ros2 run rm_mujoco run_performance.py \
   `same_hand_chords`、`missing`/`unexpected`、错指/意外接触、
   `arm_moves_over_held_notes`）、`played_keys.mid` 和
   `raw_contacts.json`；`passed` 只在所有期望键事件都在容差内且无错键时成立。
+  MIDI 包含所有实际琴键事件，包括未匹配和额外音，不再只保留匹配成功的目标音；
+  仿真结束仍未松开的音会在文件末尾强制写下 Note Off 以保持 MIDI 有效，尾部异常仍以
+  `report.json` 的 `active_keys_at_end` 为准。
 - 双手输入保留两侧事件的 `hand` 和 `finger`。固定模式要求每音有指法，
   自动模式可换指，报告保留输入和实际采用的指法。
-  双手模式默认使用本包的 `config/right_hand_piano_sim.yaml`。
+  单手和双手规划都默认使用本包的 `config/right_hand_piano_sim.yaml`，不会默认
+  读取真机手态；需要其他标定时显式传入 `--pose-file`。
   规划器将两侧候选放入同一个 MuJoCo 场景复验，联合通过后才写出计划。
   `*.diagnostics.json` 保留候选失败原因；双手回放报告额外记录起音前
   实际接触的手别、手指和时间。双手同时占用同一个物理键的输入会被拒绝。
   `--planning-budget-sec` 设置搜索及联合验收的实际耗时预算，默认 300 秒。
+  日志按起音组输出 `PLAN ... group ... elapsed=...`，便于区分搜索中与进程卡住。
+  `--beam-width` 和 `--candidate-limit` 可显式缩小搜索；这不会改变最终验收标准。
 
   ```bash
   ros2 run rm_mujoco plan_performance.py --score /tmp/duet.fingering.yaml \
