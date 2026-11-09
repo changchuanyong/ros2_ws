@@ -17,6 +17,7 @@ sys.path.insert(0, str(PACKAGE))
 from rm_mujoco.performance import write_plan  # noqa: E402
 from rm_mujoco.piano_rl import (  # noqa: E402
     PianoResidualEnv, PianoTaskCycle, target_keys, tolerance, key_reward, episode_steps, finger_clock,
+    active_fingers, f1_score,
 )
 
 
@@ -473,3 +474,78 @@ def test_nominal_tracking_suppresses_arbitrary_residual_without_bias(plan_path):
 def test_pressure_shaping_prefers_margin_below_the_unchanged_limit():
     target = np.ones(1)
     assert key_reward(np.array([0.6]), target) > key_reward(np.array([0.95]), target)
+
+
+def test_active_finger_labels_match_future_note_intervals():
+    events = [{"side": "right", "finger": "middle", "prior_finger": "index",
+               "note": 60, "on": 0.2, "off": 0.4}]
+    assert not active_fingers(events, "right", 0.19).any()
+    assert active_fingers(events, "right", 0.2)[1] == 1.0
+    assert active_fingers(events, "right", 0.39)[1] == 1.0
+    assert not active_fingers(events, "right", 0.4).any()
+    assert not active_fingers(events, "left", 0.3).any()
+
+
+def test_frame_level_f1_counts_false_positives_and_negatives():
+    metrics = f1_score(np.array([8, 2, 2]))
+    assert metrics["precision"] == pytest.approx(0.8)
+    assert metrics["recall"] == pytest.approx(0.8)
+    assert metrics["f1"] == pytest.approx(0.8)
+    assert f1_score(np.zeros(3))["f1"] == 1.0
+    json.dumps(metrics)
+
+
+def test_robopianist_profile_is_explicit_and_supports_discount_ablation(training_entry):
+    default = training_entry.ppo_configuration()
+    profile = training_entry.ppo_configuration(True)
+    assert default["network_width"] == 64
+    assert profile["network_width"] == 256
+    assert profile["network_depth"] == 3
+    assert profile["batch_size"] == 256
+    assert profile["learning_rate"] == pytest.approx(3e-4)
+    assert profile["activation"] == "relu"
+    assert training_entry.ppo_configuration(True, 0.9)["gamma"] == pytest.approx(0.9)
+    with pytest.raises(ValueError):
+        training_entry.ppo_configuration(gamma=0.0)
+
+
+def test_selection_rejects_a_regression_on_the_worst_task(training_entry):
+    good = dict(passed=True, missing=0, unexpected=0, angle_violations=[],
+                active_keys_at_end=[], wrong_finger_contacts=0, unexpected_contacts=0,
+                max_onset_error_sec=0.02, max_release_error_sec=0.02, f1=0.8)
+    failed = dict(good, passed=False, missing=1, f1=0.9)
+    improved = dict(good, f1=0.9)
+    assert training_entry.physical_rank([good, good]) < training_entry.physical_rank([improved, failed])
+
+
+def test_step_balanced_cycle_repeats_short_tasks(plan_path):
+    short = PianoResidualEnv(plan_path, PACKAGE)
+    long = PianoResidualEnv(
+        PACKAGE / "examples/two_tigers_flat_palms/verified_40/performance.yaml", PACKAGE)
+    cycle = PianoTaskCycle([short, long], balance="step")
+    try:
+        cycle._next_cycle()
+        counts = np.bincount(cycle.order, minlength=2)
+        assert counts[0] == np.ceil(cycle.episode_lengths.max() / cycle.episode_lengths[0])
+        assert counts[1] == 1
+        with pytest.raises(ValueError):
+            PianoTaskCycle([short], balance="unknown")
+    finally:
+        cycle.close()
+
+
+def test_observation_contains_forearm_position_and_active_finger(plan_path):
+    env = PianoResidualEnv(plan_path, PACKAGE)
+    try:
+        obs, _ = env.reset(seed=0)
+        forearm_offset = 42 + 14 + 20
+        finger_offset = forearm_offset + 3 + 88 * 5
+        assert np.any(obs[forearm_offset:forearm_offset + 3])
+        assert not obs[finger_offset:finger_offset + 5].any()
+        while env.runner.data.time < 0.22:
+            env.step(np.zeros(20, np.float32))
+        obs = env._observation()
+        assert obs[finger_offset + 1] == 1.0
+        assert obs.shape == (1337,)
+    finally:
+        env.close()

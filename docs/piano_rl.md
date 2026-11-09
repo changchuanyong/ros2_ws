@@ -61,7 +61,7 @@ python src/ros2_rm_robot/rm_mujoco/scripts/train_piano_rl.py \
   --steps 4096 --seed 7 --robopianist-reward
 ```
 
-只评估时把 `--steps` 换成 `--evaluate-only`。恢复训练会检查 residual、控制周期、奖励模式、奖励版本、接口版本和 manifest；同时保持 `--include-two-tigers` 等原配置。当前为 `piano_residual/5`、`piano_shared_hands/2`。新接口与旧 v3/v4 网络尺寸不同；旧模型需要使用其保留的原源码快照评估，不能直接载入新接口续训。
+只评估时把 `--steps` 换成 `--evaluate-only`。恢复训练会检查 residual、控制周期、奖励模式、PPO 配置、课程平衡、奖励版本、接口版本和 manifest；同时保持 `--include-two-tigers` 等原配置。当前为 `piano_residual/5`、`piano_shared_hands/3`。新接口与旧 v2/v3/v4 网络尺寸不同；旧模型需要使用其保留的原源码快照评估，不能直接载入新接口续训。
 
 ## 4. 奖励与验收
 
@@ -176,10 +176,12 @@ python "$package/scripts/evaluate_piano_robustness.py" --package "$package" \
 
 ## 6. 共享接口、多录音与参考反馈（v5）
 
-动作始终为 20 维，顺序为右手 10 维、左手 10 维；不存在的手用掩码屏蔽。观测始终为
-1281 维，包含两手状态/参考误差、按手区分的未来键目标、每根手指的下一目标音与
-起音/松键倒计时、有效手掩码和上一动作。单手片段与双手曲目使用同一网络接口。
-腕部仍由输入参考轨迹控制；新片段必须有可行的腕位和手态参考。
+动作始终为 20 维，顺序为右手 10 维、左手 10 维；不存在的手用掩码屏蔽。`piano_shared_hands/3`
+观测为 1337 维，包含两手状态/参考误差、相对钢琴的前臂笛卡尔位置、五个时点的未来键目标和
+active-finger 标签、每根手指的下一目标音与起音/松键倒计时、有效手掩码和上一动作。
+新增项对应 RoboPianist 表 1 的前臂位置与 `L × 10` 指法标签；本项目仍保留自身残差误差和
+指法时钟。单手片段与双手曲目使用同一网络接口。腕部仍由输入参考轨迹控制；新片段必须有
+可行的腕位和手态参考。
 
 每个新参考先完整无扰动回放，通过后保存逐控制步 `nominal_states.npz`。策略读取
 实际手部/机械臂关节与同一步名义状态的 56 维差值；残差乘以跟踪误差门控，最大误差
@@ -340,3 +342,43 @@ tail -n 8 "$artifact/logs/train_seed7.log"
 完整结果、候选、曲谱、参数来源和 26 次失败日志见
 [新曲试验报告](../.validation/piano_rl_new_music_20261109/RESULTS.md)。127 份取回证据
 逐文件 SHA256 校验通过；Windows 仅语法及 5 项纯数据边界检查通过。
+
+## 10. 多曲目稳定性与 RoboPianist 对齐（当前接口）
+
+本轮针对多曲课程的三个混淆来源增加了明确约束和指标：
+
+- `--task-balance episode` 保持原来的每轮每曲一次；`--task-balance step` 在第一轮完整覆盖后，
+  按 `ceil(最长回合步数 / 当前回合步数)` 重复短片段，避免长曲仅因回合更长而占据大部分 PPO
+  样本。`summary.training.coverage` 同时记录选中回合、完成回合、实际控制步和音符覆盖。
+- 每次评估按物理步累计琴键发声状态的 TP/FP/FN，输出 `precision`、`recall`、`f1` 和原始计数。
+  发声阈值与按键奖励相同，为归一化行程 `0.55`；空分母定义 precision/recall 为 1。
+  这与 [RoboPianist 的逐时刻 F1](https://arxiv.org/html/2304.04150v3#S3) 可比地反映多曲表现，
+  但不替代原有事件级 30ms、错指、超行程和尾部残留验收。
+- 选模先比较最差无扰动片段是否失败，再比较失败片段总数、最差/总物理错误；随后才对开发扰动
+  做同样比较，最后比较最差/平均 F1 和时序误差。不能用一个简单片段的改善抵消另一个片段的
+  物理退化，也不能用 shaping return 或独立测试集选模。
+
+`--robopianist-profile` 将 PPO 网络设为 3×256 ReLU、学习率 `3e-4`、minibatch 256，并启用
+非目标发声键的恒定惩罚；折扣默认仍是论文附录的 0.99。可用 `--gamma 0.9` 复现论文第 5.3 节
+建议的 0.84–0.92 范围对照。该选项只对齐观测、奖励和网络/优化参数，优化器仍是 PPO，不是论文的
+DroQ，也不能直接比较回报数值。恢复训练必须保持完整 PPO 和课程配置一致。
+
+使用本地已准备的 PianoVAM 清单开始新接口的三种子对照（仅在 Ubuntu/Conda 仿真环境执行）：
+
+```bash
+package="$PWD/src/ros2_rm_robot/rm_mujoco"
+manifest="$PWD/.validation/piano_rl_generalization_20261109/excerpts_ready/manifest.json"
+for seed in 7 11 19; do
+  python "$package/scripts/train_piano_rl.py" --package "$package" \
+    --manifest "$manifest" --include-two-tigers \
+    --output "$PWD/.validation/piano_rl_multisong_stability_20261109/seed$seed" \
+    --steps 32768 --seed "$seed" --residual 6 --control-dt 0.02 \
+    --command-bias 0.5 --task-balance step --robopianist-reward \
+    --robopianist-profile --gamma 0.9
+done
+```
+
+先在训练/开发扰动上冻结模型及哈希，再运行 `evaluate_piano_robustness.py`。注意上述清单的两份
+PianoVAM `test` 已在 T-0012 查看，本轮只能作为旧测试回归；要声称新的跨曲泛化，必须加入此前
+未参与准备、选模或调参的录音，并保持作曲家/曲目隔离。当前改动本身不等于训练收敛或泛化提升，
+需以三种子的逐曲物理验收和配对 F1 结果为准。

@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Paired same-song robustness evaluation; no training or cross-song claim."""
+"""Paired reference/policy robustness with frame-level F1 and physical acceptance."""
 
 import argparse
 import json

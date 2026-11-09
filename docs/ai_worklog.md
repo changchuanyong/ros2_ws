@@ -57,7 +57,7 @@
 | Claude Code | 待登记 | 待登记 | — | |
 | Codex CLI | 待登记 | 待登记 | — | |
 | Qwen Code | 待登记 | 待登记 | — | 旧入口 `QWEN.md` 在工作区已删除，按 `AGENTS.md` 与本台账工作 |
-| Kimi Code | Windows 编辑 + Jetson Conda / MuJoCo | 双手残差 PPO 正式化、安装入口与仿真验收 | 2026-11-09 17:24 | T-0010 收尾，25 项专项测试仅仿真。T-0015 钢琴后移定案 y=0.15（13 偏移平腕扫描，C-18~C-20），待整曲重标定 |
+| Kimi Code | Windows 编辑 + Jetson Conda / MuJoCo | 多曲目 RL 泛化、稳定性与 RoboPianist 对齐 | 2026-11-09 21:27 | T-0019 已合入新观测、F1、等步数课程和最差任务选模；仅 Windows 静态检查，待 Ubuntu/Conda 验证 |
 | DeepSeek Harness | Windows 编辑 + Jetson 验证 | 文档、协作台账、`rm_mujoco` 右手尾段、提交与推送 | 2026-11-09 16:39 | 2026-11-08 建立本台账并拉回右手尾段 v29；2026-11-09 按用户要求提交并推送钢琴 RL 与双手 40 音改动（`2354b80`） |
 
 ## 4. 任务看板
@@ -66,6 +66,7 @@
 
 | 任务号 | 任务 | 负责人 | 状态 | 涉及文件 / 包 | 开始 | 最近更新 | 说明 |
 | --- | --- | --- | --- | --- | --- | --- | --- |
+| T-0019 | 多曲目强化学习的泛化与稳定性对齐 | Kimi Code | 进行中 | RL 环境、训练/鲁棒性入口、专项测试、RL 文档、本台账 | 2026-11-09 21:16 | 2026-11-09 21:30 | 用户要求 Jetson 验证；已确认 `piano_rl` Conda 和远端工作区可用，将在独立目录部署并先跑专项测试与最小 PPO 闭环 |
 | T-0018 | 修复 y=0.15 下双手《两只老虎》40 音 | Codex Desktop / y015-40-fix | 完成 | 本台账、实验目录、`rm_mujoco/examples/two_tigers_flat_palms/verified_40/`、`docs/usage.md` | 2026-11-09 20:05 | 2026-11-09 21:11 | 默认场景正式整曲 40/40，原速、固定指法及 30 ms 容差；专项 8/8，零残差回放 40/40。已合入计划与清单，证据取回，占用释放 |
 | T-0017 | 钢琴后移后的传统轨迹恢复及强化学习对照 | Codex Desktop / y015-recovery | 待验证 | 本台账、本地与 Jetson `.validation/piano_y015_recovery_20261109/` | 2026-11-09 19:31 | 2026-11-09 20:02 | 同场景 8 个短片段通过，双手原速连续前 24 音通过。整曲候选匹配 40/40，仍有两个邻键、两处键角及两个提前落键。冻结 PPO 在独立片段及 24 音的配对对照未显示稳定通过率收益。仅 MuJoCo |
 | T-0016 | 适配强化学习参考谱子到钢琴 y=0.15 | Kimi Code | 进行中 | 本台账、Jetson fix 工作区新增 `.validation/piano_rl_y015_adaptation_20261109/`；只读使用既有 RL 数据与源码 | 2026-11-09 17:30 | 2026-11-09 17:30 | T-0015 已定 y=0.15，RL 参考（PianoVAM 短片段 + 40 音双手）绑旧几何需重规划；T-0013 后台训练仍跑，仅新增目录、不改正式源码与其冻结快照 |
@@ -91,6 +92,7 @@
 
 | 路径 | 占用者 | 开始 | 状态 | 说明 |
 | --- | --- | --- | --- | --- |
+| `docs/ai_worklog.md`、`docs/piano_rl.md`、`src/ros2_rm_robot/rm_mujoco/rm_mujoco/piano_rl.py`、`src/ros2_rm_robot/rm_mujoco/scripts/train_piano_rl.py`、`src/ros2_rm_robot/rm_mujoco/scripts/evaluate_piano_robustness.py`、`src/ros2_rm_robot/rm_mujoco/test/test_piano_rl.py`、本地与 Jetson `.validation/piano_rl_multisong_stability_20261109/` | Kimi Code | 2026-11-09 21:30 | 占用中 | T-0019 Jetson 独立目录验证；不改正式远端源码、既有模型或实验输出 |
 | `src/ros2_rm_robot/rm_mujoco/examples/two_tigers_flat_palms/verified_40/`、`docs/usage.md` | Codex Desktop / y015-40-fix | 2026-11-09 21:08 | 已释放 | y=0.15 计划、清单及验证说明已合入 |
 | `docs/ai_worklog.md`、本地与 Jetson `.validation/piano_y015_40_fix_20261109/` | Codex Desktop / y015-40-fix | 2026-11-09 20:05 | 已释放 | 原始报告已取回并验摘要，本轮所有进程结束 |
 | `docs/ai_worklog.md`、本地与 Jetson `.validation/piano_y015_recovery_20261109/` | Codex Desktop / y015-recovery | 2026-11-09 19:31 | 已释放 | T-0017 结果和原始报告已取回并验 SHA256；本轮仿真进程结束 |
@@ -113,6 +115,9 @@
 
 | 记录号 | 时间 | AI | 类型 | 涉及文件 | 改了什么 | 验证 | commit | 遗留 |
 | --- | --- | --- | --- | --- | --- | --- | --- | --- |
+| C-20261109-27 | 2026-11-09 21:30 | Kimi Code | test | 本台账、Jetson `.validation/piano_rl_multisong_stability_20261109/` | 用户要求 Jetson 验证；恢复 T-0019，确认 Conda 依赖和远端工作区，准备独立部署当前源码与测试 | Jetson 只读检查：NumPy 1.26.4、MuJoCo 3.3.7、Gymnasium 1.0.0、SB3 2.4.1、Pytest 8.4.2；未发现续训进程，磁盘约 3.5T 可用 | 未提交 | 部署、专项测试、最小 PPO 闭环及多曲对照待执行 |
+| C-20261109-26 | 2026-11-09 21:27 | Kimi Code | feat | `piano_rl.py`、`train_piano_rl.py`、`evaluate_piano_robustness.py`、`test_piano_rl.py`、`docs/piano_rl.md`、本台账 | 新 `piano_shared_hands/3` 增加前臂位置和五时点指法标签；加入逐帧 F1、等 episode/控制步课程、RoboPianist 3×256 PPO 配置和最差任务优先选模；新增 6 项测试及本地 PianoVAM 三种子复现实验说明，旧测试集只作回归 | 静态检查（Windows）：4 个 Python 文件 AST 和 `git diff --check` 通过；本机无 NumPy/MuJoCo/Gymnasium/SB3/Pytest，未运行单元测试、构建、训练或仿真 | 未提交 | T-0019 待 Ubuntu/Conda 运行专项测试和三种子训练；尚未证明泛化或稳定性提升，旧 v2 模型不能直接加载 |
+| C-20261109-25 | 2026-11-09 21:16 | Kimi Code | docs | 本台账 | 认领 T-0019：对齐 RoboPianist 多曲目观测与稳定选模，使用本地 PianoVAM 严格数据划分；登记正式 RL 源码、测试、文档和独立新实验目录占用 | 只读核对现有 v5 实现、T-0012 独立对照和 T-0013 占用；旧训练产物不覆盖，Windows 尚未运行仿真 | 未提交 | 实现、针对性测试和 Ubuntu/Conda 复验待执行 |
 | C-20261109-24 | 2026-11-09 21:11 | Codex Desktop / y015-40-fix | fix | `verified_40/performance.yaml`、`manifest.json`、`README.md`、`docs/usage.md`、本台账 | 完成 y=0.15 下的原速整曲重标定，调整局部换腕、抬指及击键指令；在正式入口更新计划和两个身份摘要，冻结曲谱不变 | Jetson Conda / MuJoCo 3.3.7：校准场景与工作区默认场景均严格通过 40/40、80 边沿、最大落键/释放/时长误差 20/20/23 ms；零残差 40/40；专项 Pytest 8/8。证据归档 SHA256 通过；本地 51 项冻结身份及 git diff 检查通过 | 未提交 | 仅 MuJoCo。报告 `.validation/piano_y015_40_fix_20261109/formal_verified/playback/report.json` |
 | C-20261109-23 | 2026-11-09 20:05 | Codex Desktop / y015-40-fix | docs | 本台账 | 认领 T-0018，接续用户要求修好 40 音 | 只读确认 T-0017 已释放占用，原报告匹配 40 音且严格验收未通过 | 未提交 | 逐段校准并正式整曲复验 |
 | C-20261109-22 | 2026-11-09 20:02 | Codex Desktop / y015-recovery | test | 本台账、本地与 Jetson `.validation/piano_y015_recovery_20261109/` | 冻结 y=0.15 及 Kimi 最后初始姿态；修正验证片段前置等待元数据；重定位传统轨迹并局部标定；比较三个旧几何 PPO 最终检查点 | Jetson MuJoCo 3.3.7：PianoVAM 8/8，双手 24/24 原速严格通过，最大落键/释放/时长误差 20/20/22 ms。完整候选匹配 40/40，严格验收失败。独立扰动录音零残差 3/6，PPO 1/6、3/6、3/6；双手 24 音各 0/3，所有无扰动参考及模型通过。原始证据 SHA256 通过；Windows 脚本 AST 和 diff 检查通过 | 未提交 | 40 音仍需解决邻键触发、键角和提前落键，整曲 PPO 对照待有效参考；仿真产物见实验 RESULTS.md |
@@ -161,16 +166,18 @@
 
 ## 8. 当前快照
 
-采样时间 2026-11-09 16:39（T-0015 收工时重新采样 `git status --porcelain`），此前 16:39 的 `2354b80` 提交已把旧表条目全部送入历史，本节允许整体替换。当前工作区仅剩两处改动：
+采样时间 2026-11-09 21:27（T-0019 收工时重新采样 `git status --short`）。当前工作区六个改动均属于本轮 T-0019，占用已释放：
 
 | 路径 | 状态 | 说明 | 认领 |
 | --- | --- | --- | --- |
-| `docs/ai_worklog.md` | 已修改 | AI 协作台账：T-0015 登记与收工记录（C-20261109-18） | 多 AI（见台账） |
-| `src/ros2_rm_robot/rm_mujoco/config/piano_scene.yaml` | 已修改 | T-0015 钢琴整体后移：piano_frame y 0.00→0.10，三个相机 target y 同步 +0.10（C-20261109-18，待 Jetson 验证） | Kimi Code |
+| `docs/ai_worklog.md` | 已修改 | T-0019 认领、验证边界与收工记录 | Kimi Code |
+| `docs/piano_rl.md` | 已修改 | 新接口、F1、课程平衡、RoboPianist 配置及三种子命令 | Kimi Code |
+| `src/ros2_rm_robot/rm_mujoco/rm_mujoco/piano_rl.py` | 已修改 | 1337 维观测、逐帧计数和等步数课程 | Kimi Code |
+| `src/ros2_rm_robot/rm_mujoco/scripts/train_piano_rl.py` | 已修改 | F1 输出、PPO 配置、最差任务选模和覆盖统计 | Kimi Code |
+| `src/ros2_rm_robot/rm_mujoco/scripts/evaluate_piano_robustness.py` | 已修改 | 配对评估入口说明 | Kimi Code |
+| `src/ros2_rm_robot/rm_mujoco/test/test_piano_rl.py` | 已修改 | 6 项新回归测试，尚未在 Ubuntu/Conda 执行 | Kimi Code |
 
-另：`.validation/piano_offset_sweep_20261109/` 为本次新建的 git 忽略实验目录（五份扫距变体 + 跑测 README），不出现在 git status。
-
-`.validation/` 是被 git 忽略的实验产物目录，引用它时写清子目录名。Kimi 的 RL 实验产物位于 Jetson 远端 `.validation/kimi_piano_rl_20261109/`、`.validation/kimi_piano_rl_reward_20261109/` 和 `.validation/kimi_rl_formal_20261109/`。
+本轮未创建 `.validation/piano_rl_multisong_stability_20261109/` 训练输出；已有实验目录均未修改。`.validation/` 默认被 git 忽略，引用时须写清子目录名。
 
 ## 9. 附录：编号与维护
 

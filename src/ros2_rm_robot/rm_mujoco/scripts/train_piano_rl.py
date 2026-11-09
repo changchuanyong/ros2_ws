@@ -19,7 +19,7 @@ sys.path.insert(0, str(PACKAGE))
 
 from rm_mujoco.performance import load_plan  # noqa: E402
 from rm_mujoco.piano_rl import (  # noqa: E402
-    PianoResidualEnv, PianoTaskCycle, REWARD_VERSION, INTERFACE_VERSION, episode_steps,
+    PianoResidualEnv, PianoTaskCycle, REWARD_VERSION, INTERFACE_VERSION, episode_steps, f1_score,
 )
 
 
@@ -138,6 +138,7 @@ def evaluate(env, policy, output, *, seed=0):
         if nominal is not None:
             env.set_nominal_trace(nominal)
             np.savez_compressed(output / "nominal_states.npz", qpos=env.nominal_qpos)
+    key_metrics = f1_score(env.key_confusion)
     report["rl"] = {"episode_return": env.episode_return,
                     "reward_version": REWARD_VERSION,
                     "residual_command_units": env.residual,
@@ -149,6 +150,7 @@ def evaluate(env, policy, output, *, seed=0):
                     "robopianist_reward": env.robopianist_reward,
                     "threshold_wrong": env.threshold_wrong,
                     "reward_components": env.reward_components,
+                    "key_metrics": key_metrics,
                     "mean_fingertip_distance_m": (
                         env.fingertip_distance_total / env.fingertip_distance_samples
                         if env.fingertip_distance_samples else None),
@@ -178,6 +180,7 @@ def evaluate(env, policy, output, *, seed=0):
             "max_release_error_sec": report["max_release_error_sec"],
             "episode_return": env.episode_return,
             "reward_components": env.reward_components,
+            **key_metrics,
             "mean_fingertip_distance_m": report["rl"]["mean_fingertip_distance_m"],
             "mean_hand_power_w": report["rl"]["mean_hand_power_w"]}
 
@@ -204,17 +207,37 @@ def reuse_zero_reference(source, target, metrics):
     return dict(metrics, evidence_reuse="exact_zero_action_initialization")
 
 
-def create_policy(env, seed):
+def ppo_configuration(robopianist_profile=False, gamma=None):
+    config = {"learning_rate": 1e-4, "batch_size": 64, "n_epochs": 5,
+              "gamma": 0.99, "network_width": 64, "network_depth": 2,
+              "activation": "tanh"}
+    if robopianist_profile:
+        config.update(learning_rate=3e-4, batch_size=256, network_width=256,
+                      network_depth=3, activation="relu")
+    if gamma is not None:
+        if not np.isfinite(gamma) or not 0 < gamma <= 1:
+            raise ValueError("gamma must be in (0, 1]")
+        config["gamma"] = float(gamma)
+    return config
+
+
+def create_policy(env, seed, hyperparameters=None):
     """Start a residual policy at the physically validated zero-action reference."""
     from stable_baselines3 import PPO
     import torch
 
+    hyperparameters = hyperparameters or ppo_configuration()
     tasks = training_tasks(env)
+    width = hyperparameters["network_width"]
+    depth = hyperparameters["network_depth"]
     model = PPO(
         "MlpPolicy", env, seed=seed, device="cpu", verbose=1,
         n_steps=rollout_length([sum(episode_steps(task.plan, task.control_dt) for task in tasks)]),
-        batch_size=64, n_epochs=5, learning_rate=1e-4,
-        policy_kwargs={"net_arch": {"pi": [64, 64], "vf": [64, 64]},
+        batch_size=hyperparameters["batch_size"], n_epochs=hyperparameters["n_epochs"],
+        learning_rate=hyperparameters["learning_rate"], gamma=hyperparameters["gamma"],
+        policy_kwargs={"net_arch": {"pi": [width] * depth, "vf": [width] * depth},
+                       "activation_fn": (torch.nn.ReLU if hyperparameters["activation"] == "relu"
+                                         else torch.nn.Tanh),
                        "log_std_init": -1.5})
     torch.nn.init.zeros_(model.policy.action_net.weight)
     torch.nn.init.zeros_(model.policy.action_net.bias)
@@ -222,19 +245,23 @@ def create_policy(env, seed):
 
 
 def physical_rank(results):
-    """Rank physical correctness before timing; never use shaped return."""
-    errors = sum(result["missing"] + result["unexpected"]
-                 + len(result["angle_violations"]) + len(result["active_keys_at_end"])
-                 + result["wrong_finger_contacts"] + result["unexpected_contacts"]
-                 for result in results)
-    timing = sum((result["max_onset_error_sec"] or 0.0)
-                 + (result["max_release_error_sec"] or 0.0) for result in results)
-    return (sum(not result["passed"] for result in results), errors, timing)
+    """Protect the worst task before aggregate F1 and timing; ignore shaped return."""
+    failures = [int(not result["passed"]) for result in results]
+    errors = [result["missing"] + result["unexpected"]
+              + len(result["angle_violations"]) + len(result["active_keys_at_end"])
+              + result["wrong_finger_contacts"] + result["unexpected_contacts"]
+              for result in results]
+    f1 = [result.get("f1", 0.0) for result in results]
+    timing = [(result["max_onset_error_sec"] or 0.0)
+              + (result["max_release_error_sec"] or 0.0) for result in results]
+    return (max(failures), sum(failures), max(errors), sum(errors),
+            -min(f1), -float(np.mean(f1)), max(timing), sum(timing))
 
 
 def selection_rank(clean, perturbed):
     clean_rank, perturbed_rank = physical_rank(clean), physical_rank(perturbed)
-    return (*clean_rank[:2], *perturbed_rank[:2], clean_rank[2] + perturbed_rank[2])
+    return (*clean_rank[:4], *perturbed_rank[:4], *clean_rank[4:6],
+            *perturbed_rank[4:6], *clean_rank[6:], *perturbed_rank[6:])
 
 
 def main(argv=None):
@@ -259,8 +286,14 @@ def main(argv=None):
     parser.add_argument("--residual", type=float, default=6.0)
     parser.add_argument("--control-dt", type=float, default=0.02)
     parser.add_argument("--robopianist-reward", action="store_true")
+    parser.add_argument("--robopianist-profile", action="store_true",
+                        help="use the paper's 3x256 ReLU network, LR 3e-4 and batch 256 in PPO")
+    parser.add_argument("--gamma", type=float,
+                        help="override PPO discount; paper default 0.99, reported useful range 0.84-0.92")
+    parser.add_argument("--task-balance", choices=("episode", "step"), default="episode",
+                        help="equal episodes, or repeat short excerpts to balance control steps")
     parser.add_argument("--threshold-wrong", action="store_true",
-                        help="ablate a constant penalty for any sounding non-target key")
+                        help="penalize any sounding non-target key once, as in RoboPianist")
     parser.add_argument("--command-bias", type=float, default=0.5,
                         help="training-only uniform actuator bias (default 0.5 L20 units; 0 is an ablation)")
     parser.add_argument("--resume", type=Path)
@@ -269,6 +302,11 @@ def main(argv=None):
                         help="unseal held-out recordings only after training/model decisions are frozen")
     args = parser.parse_args(argv)
     args.package = (args.package or default_package()).resolve()
+    args.threshold_wrong = args.threshold_wrong or args.robopianist_profile
+    try:
+        ppo_config = ppo_configuration(args.robopianist_profile, args.gamma)
+    except ValueError as error:
+        parser.error(str(error))
     if args.steps < 1 or (args.evaluate_only and args.resume is None):
         parser.error("positive steps required; evaluation requires --resume")
     if args.verified_two_tigers:
@@ -294,8 +332,12 @@ def main(argv=None):
                            ("include_two_tigers", args.include_two_tigers),
                            ("threshold_wrong", args.threshold_wrong),
                            ("robopianist_reward", args.robopianist_reward),
+                           ("robopianist_profile", args.robopianist_profile),
+                           ("task_balance", args.task_balance),
+                           ("ppo", ppo_config),
                            ("manifest_sha256", sha256(args.manifest))):
-            default = False if key in ("robopianist_reward", "threshold_wrong", "include_two_tigers") else (
+            default = False if key in ("robopianist_reward", "threshold_wrong", "include_two_tigers",
+                                       "robopianist_profile") else (
                 0.0 if key == "command_bias" else None)
             if previous.get(key, default) != value:
                 parser.error(f"resume {key} differs from the saved experiment")
@@ -304,8 +346,11 @@ def main(argv=None):
     config = {"seed": args.seed, "steps_requested": args.steps,
               "residual": args.residual, "control_dt": args.control_dt,
               "robopianist_reward": args.robopianist_reward,
+              "robopianist_profile": args.robopianist_profile,
               "threshold_wrong": args.threshold_wrong,
               "command_bias": args.command_bias,
+              "task_balance": args.task_balance,
+              "ppo": ppo_config,
               "include_two_tigers": args.include_two_tigers,
               "final_test_requested": args.final_test,
               "validation_scope": "same_song_only" if args.verified_two_tigers else "held_out_recording",
@@ -333,7 +378,7 @@ def main(argv=None):
                             if phase != "test" or args.final_test]
                     for phase in ("train", "validation", "test")}
     collected_tasks = [make_env(path, args.command_bias) for path in plans["train"]]
-    vector = DummyVecEnv([lambda: PianoTaskCycle(collected_tasks)])
+    vector = DummyVecEnv([lambda: PianoTaskCycle(collected_tasks, args.task_balance)])
     selection_envs = [make_env(path) for path in plans["train"]]
     biased_selection = [make_env(path, args.command_bias) for path in plans["train"]]
     try:
@@ -341,7 +386,7 @@ def main(argv=None):
         if args.resume:
             model = PPO.load(args.resume, env=vector, device="cpu")
         else:
-            model = create_policy(vector, args.seed)
+            model = create_policy(vector, args.seed, ppo_config)
         summary = {}
         config["rollout_steps"] = int(getattr(model, "n_steps", 512))
         (args.output / "config.json").write_text(json.dumps(config, indent=2), encoding="utf-8")
@@ -456,16 +501,21 @@ def main(argv=None):
                             save_freq=4096, save_path=str(args.output / "checkpoints"),
                             name_prefix="ppo")])
             model.save(args.output / "model")
+            cycle = vector.envs[0]
             summary["training"] = {"timesteps": model.num_timesteps,
                                    "wall_seconds": time.monotonic() - started,
+                                   "task_balance": args.task_balance,
                                    "reference_rehearsal": rehearsal_updates,
                                    "coverage": [{"plan": str(task.plan_path),
+                                                 "selected_episodes": int(cycle.selected_episodes[index]),
                                                  "completed_episodes": task.completed_episodes,
+                                                 "control_steps": task.total_control_steps,
                                                  "seen_events": len(task.seen_events),
                                                  "expected_events": sum(len(hand["events"])
                                                      for hand in task.plan["hands"].values())}
-                                                for task in collected_tasks]}
+                                                for index, task in enumerate(collected_tasks)]}
             summary["selection"] = {"best": best, "candidates": selection,
+                                    "ranking": "worst_task_then_total_errors_f1_timing",
                                     "uses_validation_recordings": False}
             selected = PPO.load(args.output / "best_model", device="cpu")
         for phase, envs in environments.items():

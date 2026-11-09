@@ -23,7 +23,7 @@ FINGER_BOUNDS_M = 0.01
 FINGER_MARGIN_M = 0.1
 ENERGY_WEIGHT = 0.005
 REWARD_VERSION = "piano_residual/5"
-INTERFACE_VERSION = "piano_shared_hands/2"
+INTERFACE_VERSION = "piano_shared_hands/3"
 HAND_ORDER = ("right", "left")
 
 
@@ -52,6 +52,30 @@ def finger_clock(events, side, time_sec):
                              np.clip((event["off"] - time_sec) / 0.4, -1, 1),
                              float(event["on"] <= time_sec)]
     return result.ravel()
+
+
+def active_fingers(events, side, time_sec):
+    """RoboPianist-style fingering labels for one piano-roll lookahead."""
+    result = np.zeros(5, dtype=np.float32)
+    for event in events:
+        if (event["side"] == side and event["on"] <= time_sec < event["off"]):
+            finger = event.get("prior_finger") or event["finger"]
+            result[FINGERS.index(finger)] = 1.0
+    return result
+
+
+def f1_score(counts):
+    """Aggregate frame-level key precision, recall and F1."""
+    true_positive, false_positive, false_negative = (int(value) for value in counts)
+    precision = (true_positive / (true_positive + false_positive)
+                 if true_positive + false_positive else 1.0)
+    recall = (true_positive / (true_positive + false_negative)
+              if true_positive + false_negative else 1.0)
+    f1 = (2 * precision * recall / (precision + recall)
+          if precision + recall else 0.0)
+    return {"precision": float(precision), "recall": float(recall), "f1": float(f1),
+            "true_positive": true_positive, "false_positive": false_positive,
+            "false_negative": false_negative}
 
 
 def tolerance(value, bounds, margin):
@@ -115,7 +139,8 @@ class PianoResidualEnv(gym.Env):
         self.runner = None
         self.action_space = gym.spaces.Box(-1.0, 1.0, (20,), np.float32)
         self.action_mask = np.repeat([side in self.sides for side in HAND_ORDER], 10)
-        size = (42 + 14 + 20 + 88 * len(LOOKAHEAD_SEC) + 20 + 21) * 2 + 88 + 56 + 20 + 2 + 1
+        hand_size = 42 + 14 + 20 + 3 + 88 * len(LOOKAHEAD_SEC) + 5 * len(LOOKAHEAD_SEC) + 20 + 21
+        size = hand_size * 2 + 88 + 56 + 20 + 2 + 1
         self.observation_space = gym.spaces.Box(-np.inf, np.inf, (size,), np.float32)
         self.total_control_steps = 0
         self.completed_episodes = 0
@@ -144,6 +169,9 @@ class PianoResidualEnv(gym.Env):
             int(r.model.joint(f"{side}_joint{i}").dofadr[0]) for i in range(1, 8)])
             for side in self.sides}
         self.hand_dof = np.concatenate(list(self.hand_dofs.values()))
+        self.forearm_sites = {side: int(r.model.site(f"{side}_l20_mount").id)
+                              for side in self.sides}
+        self.piano_body = int(r.model.body("piano_environment").id)
         self.bias = self.np_random.uniform(
             -self.command_bias, self.command_bias, self.action_space.shape) * self.action_mask
         joints = [r.model.joint(f"piano_key_{note:03d}_hinge") for note in KEY_NOTES]
@@ -169,6 +197,7 @@ class PianoResidualEnv(gym.Env):
         self.fingertip_distance_samples = 0
         self.energy_total = 0.0
         self.energy_samples = 0
+        self.key_confusion = np.zeros(3, dtype=np.int64)
         self.done = False
         self.action_trace = []
         if r.dual:
@@ -215,19 +244,24 @@ class PianoResidualEnv(gym.Env):
         r = self.runner
         time_sec = r.data.time
         features = []
+        hand_size = 42 + 14 + 20 + 3 + 88 * len(LOOKAHEAD_SEC) + 5 * len(LOOKAHEAD_SEC) + 20 + 21
         for side in HAND_ORDER:
             if side not in self.sides:
-                features.append(np.zeros(42 + 14 + 20 + 88 * len(LOOKAHEAD_SEC) + 20 + 21))
+                features.append(np.zeros(hand_size))
                 continue
             reference = r.hand_tracks[side].at(time_sec)
+            events = [event for event in r.expected if event["side"] == side]
+            forearm = (r.data.site_xpos[self.forearm_sites[side]]
+                       - r.data.xpos[self.piano_body])
             features.extend([
                 r.data.qpos[r.hand_qpos[side]] / 3.0,
                 r.data.qvel[self.hand_dofs[side]] / 10.0,
                 r.data.qpos[r.arm_qpos[side]] / np.pi,
                 r.data.qvel[self.arm_dofs[side]] / 10.0,
                 reference / 255.0,
-                *(target_keys([e for e in r.expected if e["side"] == side], time_sec + ahead)
-                  for ahead in LOOKAHEAD_SEC),
+                forearm,
+                *(target_keys(events, time_sec + ahead) for ahead in LOOKAHEAD_SEC),
+                *(active_fingers(events, side, time_sec + ahead) for ahead in LOOKAHEAD_SEC),
                 finger_clock(r.expected, side, time_sec),
                 (np.asarray(command_positions(reference)) - r.data.qpos[r.hand_qpos[side]]) / 0.1,
             ])
@@ -343,6 +377,10 @@ class PianoResidualEnv(gym.Env):
             angles = r.key_travel.observe(r.data)
             normalized = angles / self.key_limits
             target = target_keys(r.expected, r.data.time)
+            sounding = normalized >= 0.55
+            self.key_confusion += [np.count_nonzero(sounding & (target == 1)),
+                                   np.count_nonzero(sounding & (target == 0)),
+                                   np.count_nonzero(~sounding & (target == 1))]
             self.seen_events.update((event["side"], event["id"])
                                     for event in r.expected if event["on"] <= r.data.time)
             key_total += key_reward(normalized, target, self.threshold_wrong)
@@ -407,31 +445,47 @@ class PianoResidualEnv(gym.Env):
 
 
 class PianoTaskCycle(gym.Env):
-    """Collect shared-policy experience from every task before repeating tasks."""
+    """Visit every task, then balance either episode counts or control steps."""
 
     metadata = {"render_modes": []}
 
-    def __init__(self, tasks):
+    def __init__(self, tasks, balance="episode"):
         super().__init__()
         if not tasks:
             raise ValueError("at least one training task is required")
+        if balance not in {"episode", "step"}:
+            raise ValueError("balance must be 'episode' or 'step'")
         self.tasks = tasks
+        self.balance = balance
+        self.episode_lengths = np.array([
+            episode_steps(task.plan, task.control_dt) for task in tasks])
+        self.selected_episodes = np.zeros(len(tasks), dtype=np.int64)
         self.action_space = tasks[0].action_space
         self.observation_space = tasks[0].observation_space
         self.order = np.arange(len(tasks))
         self.cursor = 0
         self.active = None
 
+    def _next_cycle(self):
+        if self.balance == "step":
+            repeats = np.ceil(self.episode_lengths.max() / self.episode_lengths).astype(int)
+            self.order = np.repeat(np.arange(len(self.tasks)), repeats)
+        else:
+            self.order = np.arange(len(self.tasks))
+        self.np_random.shuffle(self.order)
+        self.cursor = 0
+
     def reset(self, *, seed=None, options=None):
         super().reset(seed=seed)
         if seed is not None:
             self.order = np.arange(len(self.tasks))
             self.cursor = 0
+            self.selected_episodes.fill(0)
         if self.cursor == len(self.order):
-            self.np_random.shuffle(self.order)
-            self.cursor = 0
+            self._next_cycle()
         index = int(self.order[self.cursor])
         self.cursor += 1
+        self.selected_episodes[index] += 1
         self.active = self.tasks[index]
         obs, info = self.active.reset(seed=int(self.np_random.integers(2**31 - 1)))
         return obs, {**info, "task_index": index}
