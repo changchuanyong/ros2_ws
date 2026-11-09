@@ -25,8 +25,12 @@ initial_positions:
   right_joint5: 0.105340
   right_joint6: -1.540001
   right_joint7: -1.657978
+# The whole piano (case, keys, pedals, press points) follows this frame.
+# Position chosen by a flat-wrist posture sweep (see .validation sweep README):
+# 0.00-0.20 all cover 20/22 right-hand notes; y=0.15 maximises the worst joint
+# margin (0.292 rad); >=0.25 over-reaches the treble; >=0.55 unreachable.
 piano_frame:
-  position: [0.0, 0.0, 0.74]
+  position: [0.0, 0.15, 0.74]
 keyboard:
   white_pitch: 0.0236
   white_depth: 0.15
@@ -47,13 +51,13 @@ background:
 cameras:
   overview:
     position: [1.90, -2.45, 1.85]
-    target: [0.0, -0.05, 0.88]
+    target: [0.0, 0.10, 0.88]
     fovy: 43.0
   front:
     position: [0.0, -3.2, 1.9]
-    target: [0.0, -0.12, 0.95]
+    target: [0.0, 0.03, 0.95]
     fovy: 45.0
   keys:
     position: [0.02, -0.46, 0.86]
-    target: [0.02, 0.07, 0.742]
+    target: [0.02, 0.22, 0.742]
     fovy: 42.0

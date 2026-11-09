@@ -3,7 +3,7 @@
   "environment": "Ubuntu 22.04; Python 3.10; MuJoCo 3.3.7",
   "text_hash": "sha256 with CRLF normalized to LF",
   "files": {
-    "config/piano_scene.yaml": "ba891c7c06f55a65b30c5606b29ef3f3473b1f76dc09f409dbb337220c6cd5d4",
+    "config/piano_scene.yaml": "cf7d0a3e11e73e221ead67d033bb131d73c2f5f9b7a95295959c26338c09f93c",
     "config/right_hand_piano_sim.yaml": "c8b74c7ac8d3a05239bf21e661fe7b4b131c2f9b097b88b9077885e838423170",
     "models/piano_keyboard.xml": "fe9f457ef2198604724eca5f4d3ddbdd259ae3c04dc25f751326db6dcac8ad3d",
     "models/rm_75_6fb_v_dual_l20.xml": "78eb94a9555c894fefbed5e342f74feadc1d3d0a87a71eb0af1043e30404e047",
@@ -15,7 +15,7 @@
     "rm_mujoco/l20_joint_mapping.py": "ce340cccfb575fd3b7f5a24f024a4de56c73fc969463df1a9d171ad9e0e822e1",
     "scripts/run_performance.py": "30999a5f767e336305ffd69e589957f1e832a920df2dcc3924198e171a79f461",
     "examples/two_tigers_flat_palms/verified_40/score.yaml": "469349fdc48db97b67e16e886cb130b9bb121b751131afa106b08d424e3adcc4",
-    "examples/two_tigers_flat_palms/verified_40/performance.yaml": "1c51120e9a48da4ac58e6f7930e809febace7784ea983cd54496b0d90e9136e3",
+    "examples/two_tigers_flat_palms/verified_40/performance.yaml": "8c7533f15417c5e7c9b67d4775bd60c73dcedba623f0cb71132cd1fb17a53a93",
     "examples/two_tigers_flat_palms/two_tigers_original_pose_score.mid": "bba6f8d096d5f03d5fa5ef6afdded1b6e97d063e418dc605221ee2d51f3bcf1d",
     "meshes/l20_right/base_link.STL": "731f774d963c2eda9f32aad600e3d1c1128693ae36b6ee27f2aec29b8eed287f",
     "meshes/l20_right/index_link0.STL": "ab783c0338c7972d7397d88f29b688596353ad03789facc807ae0613f9a9861c",

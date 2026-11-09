@@ -719,6 +719,12 @@ ros2 run rm_mujoco verify_two_tigers.py \
 最大落键/释放误差仍为 30/18 ms，无其他物理验收错误。证据位于 Jetson
 `.validation/kimi_rl_formal_20261109/two_tigers_verify/`。仅 MuJoCo 仿真，未测试真机。
 
+钢琴后移至 `piano_frame.y = 0.15 m` 后，更新了默认场景对应的 40 音计划和冻结清单。
+Jetson Ubuntu 22.04 / MuJoCo 3.3.7 下，源码入口联合回放 40/40，记录到 80 个按下/释放
+边沿。最大落键、释放、时长误差分别为 20、20、23 ms，维持原速、固定指法和 30 ms
+容差。无缺音、多余音、错指、键角违规、持键期间移腕或结束残留。输入专项 Pytest 8/8，
+报告见 `.validation/piano_y015_40_fix_20261109/formal_verified/playback/report.json`。
+
 ### 2026-11-09 《两只老虎》右手曲尾仿真复验
 
 当前正式调度器和回放器在 Jetson（Ubuntu 22.04、MuJoCo 3.3.7）通过了右手事件
