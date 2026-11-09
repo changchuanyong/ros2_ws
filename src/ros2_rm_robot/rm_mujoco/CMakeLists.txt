@@ -13,6 +13,7 @@ install(
     config/piano_scene.yaml
     config/right_hand_piano_sim.yaml
     config/right_tail_v29.yaml
+    config/piano_rl_environment.yaml
   DESTINATION share/${PROJECT_NAME}/config
 )
 
@@ -34,6 +35,12 @@ install(
 )
 
 install(
+  DIRECTORY rm_mujoco
+  DESTINATION share/${PROJECT_NAME}
+  FILES_MATCHING PATTERN "*.py"
+)
+
+install(
   PROGRAMS
     scripts/l20_dual_command_bridge.py
     scripts/import_pianovam.py
@@ -41,7 +48,16 @@ install(
     scripts/run_performance.py
     scripts/calibrate_piano_chord.py
     scripts/verify_right_tail.py
+    scripts/verify_two_tigers.py
+    scripts/train_piano_rl.py
+    scripts/prepare_piano_rl.py
+    scripts/evaluate_piano_robustness.py
   DESTINATION lib/${PROJECT_NAME}
+)
+
+install(
+  FILES scripts/run_performance.py scripts/plan_performance.py scripts/import_pianovam.py
+  DESTINATION share/${PROJECT_NAME}/scripts
 )
 
 install(FILES README.md DESTINATION share/${PROJECT_NAME})
@@ -56,6 +72,11 @@ install(
   DESTINATION share/${PROJECT_NAME}/examples/two_tigers_flat_palms
 )
 
+install(
+  DIRECTORY examples/two_tigers_flat_palms/verified_40
+  DESTINATION share/${PROJECT_NAME}/examples/two_tigers_flat_palms
+)
+
 if(BUILD_TESTING)
   find_package(ament_cmake_pytest REQUIRED)
   ament_add_pytest_test(model_stability test/test_model_stability.py TIMEOUT 180)
@@ -66,6 +87,8 @@ if(BUILD_TESTING)
   ament_add_pytest_test(performance_plan test/test_performance.py TIMEOUT 60)
   ament_add_pytest_test(fingering test/test_fingering.py TIMEOUT 180)
   ament_add_pytest_test(right_tail test/test_right_tail.py TIMEOUT 180)
+  ament_add_pytest_test(piano_rl test/test_piano_rl.py TIMEOUT 180)
+  ament_add_pytest_test(two_tigers test/test_two_tigers.py TIMEOUT 180)
 endif()
 
 ament_package()

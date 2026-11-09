@@ -1,6 +1,6 @@
 # 右手欢乐颂：准备、定位、演奏与录制
 
-[返回首页](../README.md) · [完整使用指南](usage.md) · [MIDI 测速](speed_test.md)
+[返回首页](../README.md) · [完整使用指南](usage.md) · [MIDI 测速](speed_test.md) · [PianoVAM 残差强化学习](piano_rl.md)
 
 按这个顺序操作：**右手 READY → 用示教器调整机械臂 → 播放欢乐颂并记录实际 MIDI、压力 → 调整等待时间再录一遍**。此流程使用右手固定姿态播放器，曲目是 `E E F G G F E D C C D E E D D` 共 15 音，不是读取 MIDI 文件来驱动机械臂。
 

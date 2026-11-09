@@ -680,6 +680,70 @@ colcon test-result --test-result-base build/rm_75_config --verbose
 
 这组测试只构造启动描述和机器人模型，不连接硬件。
 
+### 2026-11-09 双手《两只老虎》40 音正式复验入口
+
+完整固定曲谱与已验证动作计划现放在
+`src/ros2_rm_robot/rm_mujoco/examples/two_tigers_flat_palms/verified_40/`。
+该目录的 README 提供环境、命令和结果判读；无需旧 `.validation/` 数据。
+正式入口为 `rm_mujoco/scripts/verify_two_tigers.py`，在 Ubuntu 工作空间运行源码版本：
+
+```bash
+package="$PWD/src/ros2_rm_robot/rm_mujoco"
+export PYTHONPATH="$package:$package/scripts${PYTHONPATH:+:$PYTHONPATH}"
+export MUJOCO_GL=egl OPENBLAS_NUM_THREADS=1
+python3 "$package/scripts/verify_two_tigers.py" --package "$package" \
+  --output .validation/two_tigers_verified_40
+```
+
+构建并 `source install/setup.bash` 后，也可使用安装入口：
+
+```bash
+ros2 run rm_mujoco verify_two_tigers.py \
+  --output .validation/two_tigers_verified_40_ros
+```
+
+输出目录必须尚不存在。入口检查冻结文件身份、40 音的固定指法和原谱时间，
+再调用生产回放器完成双手联合仿真；成功必须同时满足退出码 0 和新报告 `passed=true`。
+这是固定曲目的完整标定计划回放，不是任意曲谱自动规划或真机演奏。
+完整计划已经包含解决曲尾衔接的腕位、抬指和预备动作，不需要另跑旧诊断搜索脚本。
+首次联合验收右手 32 音、左手 8 音全部匹配，最大落键误差 30 ms、释放误差 18 ms，
+无缺音、多余音、错误指法、角度违规或结束残留。以下独立六音记录是历史阶段结果。
+
+2026-11-09 正式源码入口在 Jetson Ubuntu 22.04 / MuJoCo 3.3.7 再次通过：
+`python3 -m pytest "$package/test/test_two_tigers.py" -q` 为 8/8；完整回放 40/40。
+新证据在 `.validation/dual_two_tigers_1x_20261108/formal40_merged/`，包含本次命令、
+退出码、耗时、文件身份及逐音报告。未执行全工作空间构建或真机测试。
+
+同日安装入口复验由 Kimi 在 Jetson Conda `piano_rl` 完成：`rm_mujoco` 构建通过，
+`piano_rl` 与 `two_tigers` 两项 CTest 共 25/25；`ros2 run` 完整回放 40/40，
+最大落键/释放误差仍为 30/18 ms，无其他物理验收错误。证据位于 Jetson
+`.validation/kimi_rl_formal_20261109/two_tigers_verify/`。仅 MuJoCo 仿真，未测试真机。
+
+### 2026-11-09 《两只老虎》右手曲尾仿真复验
+
+当前正式调度器和回放器在 Jetson（Ubuntu 22.04、MuJoCo 3.3.7）通过了右手事件
+`33、35、36、37、39、40` 的独立六音曲尾。使用固定食指、`tempo_scale=1.0`、
+30 ms 时序容差和默认琴键事件阈值，最大落键误差为 28 ms；六音全部匹配，无缺音、
+多余音、角度越限或结束残留。本机证据位于
+`.validation/dual_two_tigers_1x_20261108/formal_tail_v30/playback/`。
+
+在已有 MuJoCo/Python 依赖的 Ubuntu 工作空间根目录复现：
+
+```bash
+package="$PWD/src/ros2_rm_robot/rm_mujoco"
+export PYTHONPATH="$package:$package/scripts${PYTHONPATH:+:$PYTHONPATH}"
+python3 "$package/scripts/verify_right_tail.py" --package "$package" \
+  --output .validation/right_tail_v29/plan.yaml && \
+python3 "$package/scripts/run_performance.py" --package "$package" \
+  --plan .validation/right_tail_v29/plan.yaml --output .validation/right_tail_v29/playback
+```
+
+回放目录包含 `report.json`、`key_edges.json`、`key_angle_track.json`、
+`tracking.jsonl`、`raw_contacts.json` 和 `played_keys.mid`。姿态专用的抬指、预备和
+按压时序由生产调度器验证并写入同一个计划；不以运行时补丁改变回放行为。
+该结果从曲尾初始状态开始，仅证明独立右手六音通过。整曲前序到曲尾的连续衔接和
+双手 40 音联合验收仍在进行，不能把前段与曲尾结果拼作整曲通过，也不代表真机验证。
+
 ### 2026-10-23 右手《欢乐颂》真机指令播放
 
 - 使用当时版本的源码 YAML（更新 `new.yaml` 准备姿态和缩小幅度之前），六组姿态 `verified: true`，拇指 `PRESS_C` 的 `05` 槽位为 `113.0`。先完成不连接硬件的预览，再正常退出双手驱动和调试 GUI，启动单手入口。
