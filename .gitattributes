@@ -1,4 +1,5 @@
 # Executable ROS Python scripts must retain Unix shebang line endings.
 src/ros2_rm_robot/rm_mujoco/scripts/l20_dual_command_bridge.py text eol=lf
+src/ros2_rm_robot/rm_mujoco/scripts/verify_right_tail.py text eol=lf
 src/ros2_rm_robot/rm_piano_player/src/midi_feedback_monitor.py text eol=lf
 src/ros2_rm_robot/rm_description/scripts/dual_arm_joint_state_bridge.py text eol=lf

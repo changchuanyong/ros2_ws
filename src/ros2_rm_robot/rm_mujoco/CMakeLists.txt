@@ -12,6 +12,7 @@ install(
     config/rm_75_6fb_v_dual_l20_mujoco_controllers.yaml
     config/piano_scene.yaml
     config/right_hand_piano_sim.yaml
+    config/right_tail_v29.yaml
   DESTINATION share/${PROJECT_NAME}/config
 )
 
@@ -39,6 +40,7 @@ install(
     scripts/plan_performance.py
     scripts/run_performance.py
     scripts/calibrate_piano_chord.py
+    scripts/verify_right_tail.py
   DESTINATION lib/${PROJECT_NAME}
 )
 
@@ -63,6 +65,7 @@ if(BUILD_TESTING)
   ament_add_pytest_test(import_pianovam test/test_import_pianovam.py TIMEOUT 60)
   ament_add_pytest_test(performance_plan test/test_performance.py TIMEOUT 60)
   ament_add_pytest_test(fingering test/test_fingering.py TIMEOUT 180)
+  ament_add_pytest_test(right_tail test/test_right_tail.py TIMEOUT 180)
 endif()
 
 ament_package()

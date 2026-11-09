@@ -258,6 +258,23 @@ class PianoHandModel:
                     leads = tuple(float(value) for value in pose["command_leads_sec"])
                     next_note = pose.get("next_note")
                     cost_penalty = float(pose.get("cost_penalty", 0.0))
+                    motion = {}
+                    if "lift_positions" in pose:
+                        lift = np.asarray(pose["lift_positions"], dtype=float)
+                        if (lift.shape != (20,) or not np.all(np.isfinite(lift))
+                                or np.any((lift < 0) | (lift > 255))):
+                            raise ValueError(f"invalid lift pose for note {note}")
+                        motion["lift_positions"] = lift.tolist()
+                    for name in ("arm_lead_sec", "transition_sec", "prepare_lead_sec",
+                                 "prepare_transition_sec"):
+                        if name in pose:
+                            seconds = float(pose[name])
+                            if not math.isfinite(seconds) or seconds <= 0:
+                                raise ValueError(f"invalid {name} for note {note}")
+                            motion[name] = seconds
+                    if (any(name.startswith("prepare_") for name in motion)
+                            and "lift_positions" not in motion):
+                        raise ValueError(f"preparation requires a lift pose for note {note}")
                     if (wrist.shape != (7,) or shape.shape != (20,) or len(leads) != 2
                             or not np.all(np.isfinite(wrist)) or not np.all(np.isfinite(shape))
                             or not all(math.isfinite(value) and value >= 0 for value in leads)
@@ -266,7 +283,7 @@ class PianoHandModel:
                                 and (not isinstance(next_note, int) or next_note not in KEY_NOTES))):
                         raise ValueError(f"invalid alternative pose for note {note}")
                     alternatives.append((wrist, np.clip(shape, 0.0, 255.0).tolist(),
-                                         leads, next_note, cost_penalty))
+                                         leads, next_note, cost_penalty, motion))
                 if alternatives:
                     self.note_alternatives[note, finger] = alternatives
                 if "command_leads_sec" in values:
@@ -605,14 +622,14 @@ class PianoHandModel:
         single = len(assignments) == 1
         if single:
             bounds = self.arm_limits[side]
-            for wrist, shape, leads, next_note, cost_penalty in self.note_alternatives.get(expected[0], ()):
+            for wrist, shape, leads, next_note, cost_penalty, motion in self.note_alternatives.get(expected[0], ()):
                 if not np.all((wrist >= bounds[:, 0]) & (wrist <= bounds[:, 1])):
                     continue
                 ok, detail = self.check_group(side, expected, wrist, shape, strict=False)
                 attempt = {"side": side, "assignments": expected, "alternative_wrist": wrist.tolist(),
                            "accepted": ok, "command_leads_sec": leads, "next_note": next_note,
                            "cost_penalty": cost_penalty,
-                           **detail}
+                           **motion, **detail}
                 self.geometry_diagnostics.append(attempt)
                 if ok:
                     candidates.append(Candidate(
@@ -803,9 +820,15 @@ class FingeringPlanner:
             "checkpoint": None,
         }
 
-    def _plan_hand(self, side, groups, *, return_beam=False):
-        beam = [self._initial_state(side)]
-        for group_index, group in enumerate(groups):
+    def _plan_hand(self, side, groups, *, return_beam=False,
+                   initial_beam=None, group_offset=0):
+        if initial_beam is None:
+            beam = [self._initial_state(side)]
+        else:
+            beam = list(initial_beam)
+            if not beam:
+                raise ValueError("initial_beam must not be empty")
+        for group_index, group in enumerate(groups, start=group_offset):
             stage = f"{side} hand at {group['start']:.3f}s"
             self._check_budget(stage)
             following = groups[group_index + 1]["notes"] if group_index + 1 < len(groups) else ()
@@ -893,7 +916,10 @@ class FingeringPlanner:
         base_press = self.press_lead
         shortest = min(event["end"] - group["start"] for event, _ in assignment)
         fingers = "+".join(sorted((finger for _, finger in after), key=FINGERS.index))
-        transition = self.model.chord_transitions.get(fingers, self.hand_transition)
+        transition = candidate.detail.get(
+            "transition_sec", self.model.chord_transitions.get(fingers, self.hand_transition))
+        if "lift_positions" in candidate.detail and (len(assignment) != 1 or len(after) != 1):
+            return None, "lift preparation would interrupt a held note"
         base_press += max(0.0, transition - self.hand_transition) * 2 / 3
         # Initial guesses only. Re-evaluate any correction against continuous dynamics.
         leads = [(base_press, self.release_lead)]
@@ -933,6 +959,20 @@ class FingeringPlanner:
                          "release_secs": releases, "arm_index": arm_index,
                          "transition_sec": transition,
                          "pose_event_ids": {event["id"] for event, _ in after}}
+                if "lift_positions" in candidate.detail:
+                    previous_events = [event for old in state["path"]
+                                       for event, _ in old["assignments"]]
+                    free = max((max(self.start_padding + event["end"],
+                                    state["observed"][event["id"]]["off"] / self.tempo_scale)
+                                for event in previous_events), default=0.0)
+                    prepare = max(free + self.arm_safety / self.tempo_scale,
+                                  press - candidate.detail.get("prepare_lead_sec", .06))
+                    if prepare > press - dt + 1e-9:
+                        reason = "insufficient lift preparation time"
+                        failures.add(reason)
+                        self._log_trial(group, candidate, press, releases, reason, budget)
+                        break
+                    entry["prepare_sec"] = prepare
                 path = state["path"] + [entry]
                 try:
                     hand_states = self._hand_states(path, dt)
@@ -1045,7 +1085,7 @@ class FingeringPlanner:
         }
         if latest - depart < minimum - 1e-9:
             return None, budget
-        preferred = self.start_padding + start - self.arm_lead
+        preferred = self.start_padding + start - candidate.detail.get("arm_lead_sec", self.arm_lead)
         arrival = max(depart + minimum, min(latest, preferred))
         begin = depart
         waypoints = []
@@ -1059,6 +1099,7 @@ class FingeringPlanner:
 
     def _hand_states(self, path, dt):
         actions = {}
+        release_lifts = {}
         for entry in path:
             press = round(entry["press_sec"], 9)
             transition = entry.get("transition_sec", self.hand_transition)
@@ -1067,6 +1108,8 @@ class FingeringPlanner:
             add[2].append(transition)
             add[3].append(entry)
             for event, _ in entry["assignments"]:
+                if "lift_positions" in entry["candidate"].detail:
+                    release_lifts[event["id"]] = entry["candidate"].detail["lift_positions"]
                 off = round(entry["release_secs"][event["id"]], 9)
                 remove = actions.setdefault(off, [[], [], [], []])
                 remove[0].append(event["id"])
@@ -1090,16 +1133,34 @@ class FingeringPlanner:
                     positions = entry["candidate"].hand20
             if releases and not presses and len(fingers) == 1:
                 positions = self.model.chord_release_poses.get((previous, fingers[0]), positions)
+            if len(releases) == 1 and not presses and not fingers:
+                positions = release_lifts.get(releases[0], positions)
             states.append({"time_sec": time_sec, "pressed": fingers,
                            "positions": positions,
                            "transition_sec": max(transitions)})
+        for entry in path:
+            if "prepare_sec" not in entry:
+                continue
+            prepare = entry["prepare_sec"]
+            if any(self.start_padding + event["start"] <= prepare
+                   < self.start_padding + event["end"]
+                   for old in path for event, _ in old["assignments"]):
+                raise PlanningError("lift preparation would interrupt a held note")
+            states.append({"time_sec": prepare, "pressed": [],
+                           "positions": entry["candidate"].detail["lift_positions"],
+                           "transition_sec": entry["candidate"].detail.get(
+                               "prepare_transition_sec", .025)})
+        states.sort(key=lambda item: item["time_sec"])
+        if any(second["time_sec"] - first["time_sec"] < dt - 1e-8
+               for first, second in zip(states, states[1:])):
+            raise PlanningError("hand commands are less than one physics step apart")
         return states
 
     def _probe_prefix(self, side, path, waypoints, states, previous, move_after=None):
         model = self.model
         tempo = self.tempo_scale
         sim = m.MjData(model.model)
-        ready = model.compose([])
+        ready = path[0]["candidate"].detail.get("lift_positions", model.compose([]))
         first = np.asarray(waypoints[0]["joints"])
         arm = ArmTrack(first, [
             {**wp, "time_sec": wp["time_sec"] * tempo,
@@ -1114,6 +1175,7 @@ class FingeringPlanner:
         press = path[-1]["press_sec"] * tempo
         moving = move_after is not None
         begin = min(press, move_after * tempo) if moving else press
+        begin = min(begin, path[-1].get("prepare_sec", path[-1]["press_sec"]) * tempo)
         timestep = float(model.model.opt.timestep)
         first_tick = math.ceil((begin - 1e-9) / timestep) * timestep
         if previous is None:
@@ -1216,7 +1278,7 @@ class FingeringPlanner:
                 })
         events.sort(key=lambda item: (item["start_sec"], item["note"]))
         hand_states = state["hand_states"]
-        ready_state = data.compose([])
+        ready_state = state["path"][0]["candidate"].detail.get("lift_positions", data.compose([]))
         arm_waypoints = state["waypoints"]
         plan = {
             "format": "piano_performance/1",

@@ -55,6 +55,21 @@ def test_short_f5_alternative_has_a_ranking_penalty():
     assert fallback.cost > preferred.cost
 
 
+def test_g4_little_uses_the_simulation_depth_calibration():
+    model = PianoHandModel(PACKAGE, SCENE, SIM_POSE)
+    state = model.compose(["little"], [67])
+    assert state[4] == pytest.approx(143.35)
+    assert state[19] == pytest.approx(136.3)
+    assert model.note_timing[(67, "little")] == pytest.approx((0.050, 0.090))
+
+
+def test_d4_index_uses_the_simulation_depth_calibration():
+    model = PianoHandModel(PACKAGE, SCENE, SIM_POSE)
+    state = model.compose(["index"], [62])
+    assert state[1] == pytest.approx(174.6)
+    assert state[15] == pytest.approx(114.4)
+
+
 def test_budget_expiry_identifies_the_unfinished_hand(hand_model, monkeypatch):
     from types import SimpleNamespace
 
@@ -65,6 +80,12 @@ def test_budget_expiry_identifies_the_unfinished_hand(hand_model, monkeypatch):
     planner = FingeringPlanner(hand_model, planning_budget_sec=0.5)
     with pytest.raises(PlanningError, match=r"budget exhausted \(0.5 s\) during right hand"):
         planner.plan([_event()])
+
+
+def test_plan_hand_rejects_an_empty_initial_beam(hand_model):
+    planner = FingeringPlanner(hand_model)
+    with pytest.raises(ValueError, match="initial_beam must not be empty"):
+        planner._plan_hand("right", [], initial_beam=[])
 
 
 def test_a_short_command_starts_from_the_interrupted_value():
@@ -223,3 +244,39 @@ def test_observed_spans_keep_extra_and_unmatched_notes():
     assert observed_note_spans(edges) == [(1.0, 60, 0.5), (1.25, 61, 0.75)]
     assert observed_note_spans(edges, end_time=2.25) == [
         (1.0, 60, 0.5), (1.25, 61, 0.75), (1.75, 62, 0.5)]
+
+
+def test_pose_specific_lift_is_used_before_press_and_after_release(hand_model):
+    from rm_mujoco.fingering import Candidate
+
+    planner = FingeringPlanner(hand_model)
+    event = _event(note=72, finger="index", start=0., end=.8)
+    shape = hand_model.compose(["index"], [72])
+    lift = hand_model.compose([])
+    lift[1] = 223.
+    candidate = Candidate(hand_model.ready_arm_q["right"], shape, (0, 0, 0), 0.,
+                          {"lift_positions": lift, "prepare_transition_sec": .025})
+    entry = {"assignments": [(event, "index")], "candidate": candidate,
+             "press_sec": .95, "release_secs": {1: 1.73}, "transition_sec": .04,
+             "pose_event_ids": {1}, "prepare_sec": .89}
+    states = planner._hand_states([entry], .002)
+    assert [item["time_sec"] for item in states] == pytest.approx([.89, .95, 1.73])
+    assert states[0]["pressed"] == states[2]["pressed"] == []
+    assert states[0]["positions"] == states[2]["positions"] == lift
+    assert states[0]["transition_sec"] == .025
+    assert states[1]["positions"] == shape
+
+
+def test_lift_preparation_rejects_a_command_collision(hand_model):
+    from rm_mujoco.fingering import Candidate
+
+    planner = FingeringPlanner(hand_model)
+    event = _event(note=72, finger="index", start=0., end=.8)
+    candidate = Candidate(hand_model.ready_arm_q["right"],
+                          hand_model.compose(["index"], [72]), (0, 0, 0), 0.,
+                          {"lift_positions": hand_model.compose([])})
+    entry = {"assignments": [(event, "index")], "candidate": candidate,
+             "press_sec": .95, "release_secs": {1: 1.73}, "transition_sec": .04,
+             "pose_event_ids": {1}, "prepare_sec": .949}
+    with pytest.raises(PlanningError, match="physics step"):
+        planner._hand_states([entry], .002)
