@@ -34,6 +34,23 @@ PLAY_R = np.array([[0.0, -1.0, 0.0], [0.0, 0.0, 1.0], [-1.0, 0.0, 0.0]])
 SIM_ARM_SPEED = 2.0
 SIM_ARM_SETTLE_ERROR = 0.041
 SIM_ARM_SETTLE_SPEED = 0.35
+# Piano posture preferences.  These are soft costs, not hard joint targets:
+# a pianist keeps the upper arm sloping down from the shoulder, the elbow clear
+# of the torso and slightly behind the keys, and every joint away from its stop.
+POSTURE_ELBOW_DROP_M = 0.10
+POSTURE_ELBOW_LATERAL_M = -0.10
+POSTURE_ELBOW_BACK_M = -0.34
+POSTURE_ELBOW_BACK_TOL_M = 0.08
+POSTURE_JOINT_MARGIN_RAD = 0.25
+POSTURE_MIN_JOINT_MARGIN_RAD = 0.03
+POSTURE_TABLE_CLEARANCE_M = 0.03
+POSTURE_WEIGHTS = {
+    "elbow_drop": 6.0,
+    "elbow_lateral": 2.0,
+    "elbow_back": 1.0,
+    "joint_margin": 6.0,
+    "table_clearance": 8.0,
+}
 # The first pass tries to keep every non-target finger off the keys.  The
 # relaxed pass allows light extra finger/key contacts, which the simulation
 # then checks against the actual key edges.
@@ -125,6 +142,7 @@ class Candidate:
     cost: float
     detail: dict = field(default_factory=dict)
     hover_arm: np.ndarray = None
+    posture: dict = field(default_factory=dict)
 
 
 class PianoHandModel:
@@ -190,7 +208,23 @@ class PianoHandModel:
             m.mj_kinematics(self.model, self.work)
             self.ready_wrist_R[side] = self.work.xmat[self.wrist_id[side]].reshape(3, 3).copy()
         self.play_R = PLAY_R.copy()
+        self.strict_orientations = STRICT_ORIENTATIONS
+        self.relax_orientations = RELAX_ORIENTATIONS
+        self.strict_offsets = STRICT_OFFSETS
+        self.relax_offsets = RELAX_OFFSETS
+        self.chord_strict_orientations = CHORD_STRICT_ORIENTATIONS
+        self.chord_relax_orientations = CHORD_RELAX_ORIENTATIONS
+        self.chord_strict_offsets = CHORD_STRICT_OFFSETS
         self.baseline = self._contact_set()
+        self.table_top = (float(self.layout["table"]["position"][2])
+                          + 0.5 * float(self.layout["table"]["size"][2]))
+        self.key_top = float(self.layout["piano_frame"]["position"][2])
+        self.arm_body = {
+            side: {
+                name: self.model.body(f"{side}_{name}").id
+                for name in ("Link1", "Link3", "Link5", "l20_base_link")}
+            for side in self.sides}
+        self.posture_data = m.MjData(self.model)
         self.jp = np.zeros((3, self.model.nv))
         self.jr = np.zeros_like(self.jp)
         self.fingertip = {}
@@ -416,6 +450,81 @@ class PianoHandModel:
                 other.add(tuple(sorted((ga, gb))))
         return keys, other
 
+    def arm_posture(self, side, arm_q):
+        """Return physical posture metrics for one arm configuration.
+
+        Elbow drop and lateral offset use the shoulder as the reference.  The
+        table/keybed clearances are conservative samples along the arm; they are
+        ranking hints only, while actual contacts are still rejected by
+        `check_group` and the continuous playback probe.
+        """
+        data = self.posture_data
+        data.qpos[self.arm_qpos[side]] = np.asarray(arm_q, dtype=float)
+        m.mj_kinematics(self.model, data)
+        ids = self.arm_body[side]
+        shoulder = data.xpos[ids["Link1"]].copy()
+        elbow = data.xpos[ids["Link3"]].copy()
+        wrist = data.xpos[ids["Link5"]].copy()
+        hand = data.xpos[ids["l20_base_link"]].copy()
+        upper = elbow - shoulder
+        fore = wrist - elbow
+        angle = math.degrees(math.acos(np.clip(
+            np.dot(upper, fore) / max(1e-9, np.linalg.norm(upper) * np.linalg.norm(fore)),
+            -1.0, 1.0)))
+        limits = self.arm_limits[side]
+        q = np.asarray(arm_q, dtype=float)
+        margins = np.minimum(q - limits[:, 0], limits[:, 1] - q)
+        joint = int(np.argmin(margins))
+        table = math.inf
+        keybed = math.inf
+        for first, second in ((shoulder, elbow), (elbow, wrist), (wrist, hand)):
+            for ratio in (0.0, 0.25, 0.5, 0.75, 1.0):
+                point = first + ratio * (second - first)
+                if point[1] < -0.18:
+                    table = min(table, float(point[2] - self.table_top))
+                if point[1] > 0.10:
+                    keybed = min(keybed, float(point[2] - self.key_top))
+        outward = 1.0 if side == "right" else -1.0
+        return {
+            "shoulder": shoulder.tolist(),
+            "elbow": elbow.tolist(),
+            "wrist": wrist.tolist(),
+            "hand": hand.tolist(),
+            "elbow_drop_m": float(shoulder[2] - elbow[2]),
+            "elbow_lateral_m": float(outward * (elbow[0] - shoulder[0])),
+            "elbow_back_m": float(elbow[1]),
+            "elbow_angle_deg": float(angle),
+            "extension": float(np.linalg.norm(wrist - shoulder)
+                               / max(1e-9, np.linalg.norm(upper) + np.linalg.norm(fore))),
+            "joint_margin_rad": float(margins[joint]),
+            "joint_margin_joint": joint + 1,
+            "table_clearance_m": float(table),
+            "keybed_clearance_m": float(keybed),
+        }
+
+    def posture_cost(self, posture):
+        """Soft cost for the pianist-like posture; zero is the preferred band."""
+        weights = POSTURE_WEIGHTS
+        drop = max(0.0, POSTURE_ELBOW_DROP_M - posture["elbow_drop_m"])
+        lateral = max(0.0, POSTURE_ELBOW_LATERAL_M - posture["elbow_lateral_m"])
+        back = max(0.0, abs(posture["elbow_back_m"] - POSTURE_ELBOW_BACK_M)
+                   - POSTURE_ELBOW_BACK_TOL_M)
+        margin = max(0.0, POSTURE_JOINT_MARGIN_RAD - posture["joint_margin_rad"])
+        clearance = max(
+            0.0, POSTURE_TABLE_CLEARANCE_M
+            - min(posture["table_clearance_m"], posture["keybed_clearance_m"]))
+        return float(weights["elbow_drop"] * drop ** 2
+                     + weights["elbow_lateral"] * lateral ** 2
+                     + weights["elbow_back"] * back ** 2
+                     + weights["joint_margin"] * margin ** 2
+                     + weights["table_clearance"] * clearance ** 2)
+
+    def continuity_cost(self, arm_q, previous):
+        if previous is None:
+            return 0.0
+        delta = (np.asarray(arm_q, dtype=float) - np.asarray(previous, dtype=float)) / 0.7
+        return float(np.mean(delta ** 2))
+
     def prepare_tip(self, side, finger, hand20, desired_R):
         data = self.reset_work()
         data.qpos[self.hand_qpos[side]] = self.hand_targets(side, hand20)
@@ -434,7 +543,54 @@ class PianoHandModel:
         return data.geom_xpos[gid] + data.geom_xmat[gid].reshape(3, 3) @ local
 
     def solve_arm(self, side, target, seed, hand20, desired_R, finger,
-                  iterations=140):
+                  iterations=140, posture=None):
+        solutions = self.solve_arm_solutions(
+            side, target, [seed], hand20, desired_R, finger,
+            iterations=iterations, posture=posture, limit=1)
+        return None if not solutions else solutions[0]["q"]
+
+    def solve_arm_solutions(self, side, target, seeds, hand20, desired_R, finger,
+                            iterations=140, posture=None, limit=4):
+        """Return several converged IK solutions ranked by soft posture cost.
+
+        The first solution from a single seed is not privileged: every seed is
+        tried with and without a null-space posture bias, and the surviving
+        candidates are compared on elbow placement, joint-limit margin and
+        continuity to the previous arm pose.
+        """
+        posture = posture or {}
+        previous = posture.get("previous")
+        results = []
+        for seed in seeds:
+            for bias in (0.0, float(posture.get("bias", 1.0))):
+                solved = self._solve_arm_once(
+                    side, target, seed, hand20, desired_R, finger,
+                    iterations=iterations, posture=posture, bias=bias)
+                if solved is None:
+                    continue
+                q, position_error, rotation_error = solved
+                metrics = self.arm_posture(side, q)
+                if metrics["joint_margin_rad"] < POSTURE_MIN_JOINT_MARGIN_RAD:
+                    continue
+                score = (self.posture_cost(metrics)
+                         + 0.5 * self.continuity_cost(q, previous)
+                         + 0.01 * (np.linalg.norm(position_error) / 0.00016
+                                   + np.linalg.norm(rotation_error) / 0.004))
+                results.append({"q": np.asarray(q, dtype=float), "metrics": metrics,
+                                "score": float(score),
+                                "position_error_m": float(np.linalg.norm(position_error)),
+                                "rotation_error": float(np.linalg.norm(rotation_error))})
+        unique = []
+        for result in sorted(results, key=lambda item: item["score"]):
+            if any(np.max(np.abs(result["q"] - other["q"])) < 0.01 for other in unique):
+                continue
+            unique.append(result)
+            if len(unique) >= limit:
+                break
+        return unique
+
+    def _solve_arm_once(self, side, target, seed, hand20, desired_R, finger,
+                        iterations=140, posture=None, bias=0.0):
         data = self.reset_work()
         data.qpos[self.hand_qpos[side]] = self.hand_targets(side, hand20)
         qa = self.arm_qpos[side]
@@ -444,6 +600,15 @@ class PianoHandModel:
         gid, _, _ = self.tip_cfg[(side, finger)]
         wrist = self.wrist_id[side]
         body = self.model.geom_bodyid[gid]
+        elbow_body = self.arm_body[side]["Link3"]
+        outward = 1.0 if side == "right" else -1.0
+        previous = (posture or {}).get("previous")
+        margin = float((posture or {}).get("margin", POSTURE_JOINT_MARGIN_RAD))
+        margin_weight = float((posture or {}).get("margin_weight", 4.0))
+        center_weight = float((posture or {}).get("center_weight", 0.05))
+        continuity_weight = float((posture or {}).get("continuity_weight", 0.25))
+        bias_step = float((posture or {}).get("bias_step", 0.06))
+        center = 0.5 * (limits[:, 0] + limits[:, 1])
         for _ in range(iterations):
             data.qpos[qa] = q
             m.mj_kinematics(self.model, data)
@@ -454,12 +619,46 @@ class PianoHandModel:
             rotation_error = 0.5 * np.cross(actual_R.T, desired_R.T).sum(axis=0)
             if (np.linalg.norm(position_error) <= 0.00016
                     and np.linalg.norm(rotation_error) <= 0.004):
-                return q.copy()
+                return q.copy(), position_error, rotation_error
             m.mj_jac(self.model, data, self.jp, self.jr, point, body)
             jacobian = np.vstack((self.jp[:, da], 0.13 * self.jr[:, da]))
-            delta = jacobian.T @ np.linalg.solve(
-                jacobian @ jacobian.T + np.eye(6) * 0.005 ** 2,
-                np.r_[position_error, 0.13 * rotation_error])
+            task = np.r_[position_error, 0.13 * rotation_error]
+            pinv = jacobian.T @ np.linalg.inv(
+                jacobian @ jacobian.T + np.eye(6) * 0.005 ** 2)
+            delta = pinv @ task
+            if bias:
+                elbow = data.xpos[elbow_body]
+                jp_elbow = np.zeros((3, self.model.nv))
+                jr_elbow = np.zeros((3, self.model.nv))
+                m.mj_jac(self.model, data, jp_elbow, jr_elbow, elbow, elbow_body)
+                drop = float(data.xpos[self.arm_body[side]["Link1"]][2] - elbow[2])
+                lateral = float(outward * (
+                    elbow[0] - data.xpos[self.arm_body[side]["Link1"]][0]))
+                back = float(elbow[1])
+                grad = np.zeros(7)
+                if drop < POSTURE_ELBOW_DROP_M:
+                    grad += (2.0 * POSTURE_WEIGHTS["elbow_drop"]
+                             * (POSTURE_ELBOW_DROP_M - drop) * -jp_elbow[2, da])
+                if lateral < POSTURE_ELBOW_LATERAL_M:
+                    grad += (2.0 * POSTURE_WEIGHTS["elbow_lateral"]
+                             * (POSTURE_ELBOW_LATERAL_M - lateral)
+                             * outward * jp_elbow[0, da])
+                if abs(back - POSTURE_ELBOW_BACK_M) > POSTURE_ELBOW_BACK_TOL_M:
+                    grad += (-2.0 * POSTURE_WEIGHTS["elbow_back"]
+                             * (back - POSTURE_ELBOW_BACK_M) * jp_elbow[1, da])
+                lower = q - limits[:, 0]
+                upper = limits[:, 1] - q
+                grad += 2.0 * margin_weight * (
+                    np.maximum(0.0, margin - lower) - np.maximum(0.0, margin - upper))
+                grad += 2.0 * center_weight * (center - q)
+                if previous is not None:
+                    grad += 2.0 * continuity_weight * (
+                        np.asarray(previous, dtype=float) - q)
+                null = (np.eye(7) - pinv @ jacobian) @ grad
+                largest = float(np.max(np.abs(null)))
+                if largest > bias_step:
+                    null *= bias_step / largest
+                delta = delta + bias * null
             scale = min(0.9, 0.15 / max(1e-9, np.max(np.abs(delta))))
             updated = np.clip(q + delta * scale, limits[:, 0], limits[:, 1])
             if np.max(np.abs(updated - q)) < 1e-7:
@@ -589,12 +788,32 @@ class PianoHandModel:
                     {**candidate.detail, "probe": detail}, candidate.hover_arm)
         return None
 
-    def geometry_candidates(self, side, assignments, fixed_arm=None):
-        """Check geometry only. Dynamics depend on the preceding trajectory."""
+    def geometry_candidates(self, side, assignments, fixed_arm=None, previous_arm=None,
+                            posture_weight=1.0, continuity_weight=0.5,
+                            ik_candidate_limit=2):
+        """Check geometry only. Dynamics depend on the preceding trajectory.
+
+        ``fixed_arm`` is a hard constraint for a held-note hand pose.  A new
+        reachable pose is otherwise ranked with the soft posture cost, using
+        ``previous_arm`` for a null-space seed and a continuity penalty.
+        """
         fingers = [finger for _, finger in assignments]
         hand20 = self.compose(
             fingers, [event["note"] for event, _ in assignments])
         expected = [(event["note"], finger) for event, finger in assignments]
+        previous = None if previous_arm is None else np.asarray(previous_arm, dtype=float)
+
+        def make_candidate(arm_q, shape, orientation, base_cost, detail, hover=None):
+            metrics = self.arm_posture(side, arm_q)
+            posture_cost = self.posture_cost(metrics)
+            continuity = self.continuity_cost(arm_q, previous)
+            detail = {**detail, "posture": metrics, "posture_cost": posture_cost,
+                      "continuity_cost": continuity}
+            return Candidate(
+                np.asarray(arm_q, dtype=float).copy(), shape, orientation,
+                base_cost + posture_weight * posture_cost + continuity_weight * continuity,
+                detail, hover, metrics)
+
         if fixed_arm is not None:
             fixed_arm = np.asarray(fixed_arm, dtype=float)
             variants = [(hand20, {})]
@@ -610,16 +829,26 @@ class PianoHandModel:
                            "accepted": ok, "fixed_arm": True, **variant, **detail}
                 self.geometry_diagnostics.append(attempt)
                 if ok:
-                    candidates.append(Candidate(
-                        fixed_arm.copy(), shape, (0, 0, 0),
-                        0.5 * detail.get("penalty", 0) + (0.05 if variant else 0.0), attempt))
+                    candidates.append(make_candidate(
+                        fixed_arm, shape, (0, 0, 0),
+                        0.5 * detail.get("penalty", 0) + (0.05 if variant else 0.0),
+                        attempt))
             return candidates
-        cache_key = (side, tuple(expected))
+        seed_key = None if previous is None else tuple(np.round(previous, 3))
+        cache_key = (side, tuple(expected), seed_key)
         if cache_key in self._cache:
             return self._cache[cache_key]
         seed = self.ready_arm_q[side]
         candidates = []
         single = len(assignments) == 1
+        if previous is not None:
+            ok, detail = self.check_group(side, expected, previous, hand20, strict=False)
+            attempt = {"side": side, "assignments": expected, "arm": previous.tolist(),
+                       "accepted": ok, "reuse_previous_arm": True, **detail}
+            self.geometry_diagnostics.append(attempt)
+            if ok:
+                candidates.append(make_candidate(
+                    previous, hand20, (0, 0, 0), 0.5 * detail.get("penalty", 0), attempt))
         if single:
             bounds = self.arm_limits[side]
             for wrist, shape, leads, next_note, cost_penalty, motion in self.note_alternatives.get(expected[0], ()):
@@ -632,8 +861,8 @@ class PianoHandModel:
                            **motion, **detail}
                 self.geometry_diagnostics.append(attempt)
                 if ok:
-                    candidates.append(Candidate(
-                        wrist.copy(), shape, (0, 0, 0),
+                    candidates.append(make_candidate(
+                        wrist, shape, (0, 0, 0),
                         cost_penalty + 0.5 * detail.get("penalty", 0), attempt))
         chord = "+".join(sorted(fingers, key=FINGERS.index))
         if chord in self.chord_arm_seeds:
@@ -645,20 +874,20 @@ class PianoHandModel:
                            "accepted": ok, **detail}
                 self.geometry_diagnostics.append(attempt)
                 if ok:
-                    candidates.append(Candidate(
-                        wrist.copy(), hand20, (0, 0, 0), 0.0, attempt))
+                    candidates.append(make_candidate(
+                        wrist, hand20, (0, 0, 0), 0.0, attempt))
         contact = self.note_contacts.get((side, *expected[0]),
                                          self.note_contacts.get(expected[0])) if single else None
         depth = contact[2] if contact else self.press_depth
         if single:
             stages = (
-                (True, STRICT_ORIENTATIONS, STRICT_OFFSETS, seed),
-                (False, RELAX_ORIENTATIONS, RELAX_OFFSETS, seed),
+                (True, self.strict_orientations, self.strict_offsets, seed),
+                (False, self.relax_orientations, self.relax_offsets, seed),
             )
         else:
             stages = (
-                (True, CHORD_STRICT_ORIENTATIONS, CHORD_STRICT_OFFSETS, seed),
-                (False, CHORD_RELAX_ORIENTATIONS, RELAX_OFFSETS, seed),
+                (True, self.chord_strict_orientations, self.chord_strict_offsets, seed),
+                (False, self.chord_relax_orientations, self.relax_offsets, seed),
             )
         if contact:
             orientation, offset, _, preferred_seed = contact
@@ -674,26 +903,47 @@ class PianoHandModel:
                         attempt = {"side": side, "assignments": expected,
                                    "orientation": orientation, "target": target.tolist(),
                                    "strict": strict}
-                        arm_q = self.solve_arm(
-                            side, target, arm_seed, hand20, desired_R, primary_finger)
-                        if arm_q is None:
+                        seeds = []
+                        if previous is not None:
+                            seeds.append(previous)
+                        seeds.append(np.asarray(arm_seed, dtype=float))
+                        seeds.append(0.5 * (self.arm_limits[side][:, 0]
+                                            + self.arm_limits[side][:, 1]))
+                        unique_seeds = []
+                        for item in seeds:
+                            if not any(np.max(np.abs(item - other)) < 1e-6
+                                       for other in unique_seeds):
+                                unique_seeds.append(item)
+                        solutions = self.solve_arm_solutions(
+                            side, target, unique_seeds, hand20, desired_R, primary_finger,
+                            posture={"previous": previous}, limit=ik_candidate_limit)
+                        if not solutions:
                             self.geometry_diagnostics.append(
                                 {**attempt, "accepted": False, "ik_failed": True})
                             continue
-                        ok, detail = self.check_group(
-                            side, expected, arm_q, hand20, strict=strict)
-                        self.geometry_diagnostics.append({**attempt, "accepted": ok, **detail})
-                        if not ok:
-                            continue
-                        if any(item.hand20 == hand20 and np.max(np.abs(item.arm_q - arm_q)) < 1e-6
-                               for item in candidates):
-                            continue
-                        cost = 0.5 * detail.get("penalty", 0) + sum(map(abs, orientation)) / 30.0
-                        hover = self.solve_arm(
-                            side, target + np.array([0.0, 0.0, 0.05]),
-                            arm_q, self.compose([]), desired_R, primary_finger)
-                        candidates.append(Candidate(
-                            arm_q, hand20, orientation, cost, {**attempt, **detail}, hover))
+                        for solution in solutions:
+                            arm_q = solution["q"]
+                            ok, detail = self.check_group(
+                                side, expected, arm_q, hand20, strict=strict)
+                            self.geometry_diagnostics.append(
+                                {**attempt, "accepted": ok,
+                                 "ik_score": solution["score"], **detail})
+                            if not ok:
+                                continue
+                            if any(item.hand20 == hand20
+                                   and np.max(np.abs(item.arm_q - arm_q)) < 1e-6
+                                   for item in candidates):
+                                continue
+                            cost = (0.5 * detail.get("penalty", 0)
+                                    + sum(map(abs, orientation)) / 30.0)
+                            hover = self.solve_arm(
+                                side, target + np.array([0.0, 0.0, 0.05]),
+                                arm_q, self.compose([]), desired_R, primary_finger,
+                                posture={"previous": arm_q, "bias": 0.5})
+                            candidates.append(make_candidate(
+                                arm_q, hand20, orientation, cost,
+                                {**attempt, **detail, "ik_score": solution["score"]},
+                                hover))
         self._cache[cache_key] = candidates
         return candidates
 
@@ -702,18 +952,23 @@ class FingeringPlanner:
     """Search candidates per hand and verify paired tracks for a dual-hand plan."""
 
     def __init__(self, model, *, beam_width=8, candidate_limit=3,
-                 prior_weight=2.0, travel_weight=1.0, arm_move_speed=SIM_ARM_SPEED,
+                 prior_weight=2.0, travel_weight=1.0, posture_weight=2.0,
+                 continuity_weight=0.5, ik_candidate_limit=2,
+                 arm_move_speed=SIM_ARM_SPEED,
                  arm_safety=None, arm_lead=0.10, start_padding=1.0,
                  press_lead=0.05, release_lead=0.07, hand_transition=0.04,
                  min_hand_interval=0.04, timing_tolerance=0.03,
                  tempo_scale=1.0, fingering_mode="auto", planning_budget_sec=300.0,
-                 progress=None):
+                 fast=False, dynamic_prefix=True, progress=None):
         self.model = model
         self.progress = progress
         self.beam_width = int(beam_width)
         self.candidate_limit = int(candidate_limit)
         self.prior_weight = float(prior_weight)
         self.travel_weight = float(travel_weight)
+        self.posture_weight = float(posture_weight)
+        self.continuity_weight = float(continuity_weight)
+        self.ik_candidate_limit = int(ik_candidate_limit)
         self.arm_move_speed = float(arm_move_speed)
         self.arm_safety = (float(model.model.opt.timestep)
                            if arm_safety is None else float(arm_safety))
@@ -737,11 +992,30 @@ class FingeringPlanner:
             raise ValueError("arm_move_speed must be positive")
         if not math.isfinite(self.travel_weight) or self.travel_weight < 0:
             raise ValueError("travel_weight must be finite and non-negative")
+        if not math.isfinite(self.posture_weight) or self.posture_weight < 0:
+            raise ValueError("posture_weight must be finite and non-negative")
+        if not math.isfinite(self.continuity_weight) or self.continuity_weight < 0:
+            raise ValueError("continuity_weight must be finite and non-negative")
+        if self.ik_candidate_limit <= 0:
+            raise ValueError("ik_candidate_limit must be positive")
         if not 0 < self.min_hand_interval:
             raise ValueError("min_hand_interval must be positive")
         if self.start_padding < 0 or self.press_lead < 0 or self.release_lead < 0:
             raise ValueError("padding and leads must not be negative")
         self.model.hand_transition = self.hand_transition
+        self.fast = bool(fast)
+        self.dynamic_prefix = bool(dynamic_prefix)
+        if self.fast:
+            # Layout/regression mode: one flat wrist with the two useful key
+            # offsets.  The full candidate sweep remains the default.
+            self.model.strict_orientations = (
+                (0, 0, 0), (-10, 0, 0), (10, 0, 0), (0, -6, 0), (0, 6, 0),
+                (-20, 0, 0))
+            self.model.relax_orientations = self.model.strict_orientations
+            self.model.chord_strict_orientations = ((0, 0, 0), (0, -12, 0), (0, 12, 0))
+            self.model.chord_relax_orientations = ((0, 0, 0), (0, -12, 0), (0, 12, 0))
+            self.model.strict_offsets = ((0.0, 0.0), (0.0, -0.038))
+            self.model.relax_offsets = ((0.0, 0.0), (0.0, -0.038))
         self.diagnostics = []
 
     def _check_budget(self, stage):
@@ -780,7 +1054,10 @@ class FingeringPlanner:
                             return_beam=True)
             for side in sides
         ]
-        pairs = sorted(itertools.product(*beams), key=lambda pair: sum(state["cost"] for state in pair))
+        pairs = sorted(
+            itertools.product(*beams),
+            key=lambda pair: sum(state["cost"] for state in pair)
+            + self._pair_posture_cost(*pair))
         for index, pair in enumerate(pairs):
             self._check_budget("joint playback")
             left, right = [self._build_plan(side, state, source, left_max_note)
@@ -795,6 +1072,15 @@ class FingeringPlanner:
                 return plan
         raise PlanningError(
             f"joint playback rejected all {len(pairs)} candidate pairs; see joint_playback diagnostics")
+
+    def _pair_posture_cost(self, left, right):
+        """Soft dual-arm separation cost for the first planned poses."""
+        left_q = left["waypoints"][0]["joints"]
+        right_q = right["waypoints"][0]["joints"]
+        left_elbow = self.model.arm_posture("left", left_q)["elbow"]
+        right_elbow = self.model.arm_posture("right", right_q)["elbow"]
+        separation = float(right_elbow[0] - left_elbow[0])
+        return 2.0 * max(0.0, 0.30 - separation) ** 2
 
     def _assignments(self, group, active_fingers):
         lists = []
@@ -847,20 +1133,29 @@ class FingeringPlanner:
                     if self._outside_beam(next_states, assignment_cost):
                         pruned += 1
                         continue
-                    candidates = self.model.geometry_candidates(side, after, state["arm"])
-                    if not active:
-                        candidates += [
-                            candidate for candidate in self.model.geometry_candidates(side, after)
+                    if active:
+                        candidates = self.model.geometry_candidates(
+                            side, after, fixed_arm=state["arm"], previous_arm=state["arm"],
+                            posture_weight=self.posture_weight,
+                            continuity_weight=self.continuity_weight,
+                            ik_candidate_limit=self.ik_candidate_limit)
+                    else:
+                        candidates = self.model.geometry_candidates(
+                            side, after, previous_arm=state["arm"],
+                            posture_weight=self.posture_weight,
+                            continuity_weight=self.continuity_weight,
+                            ik_candidate_limit=self.ik_candidate_limit)
+                        candidates = [
+                            candidate for candidate in candidates
                             if candidate.detail.get("next_note") is None
                             or candidate.detail["next_note"] in next_notes]
                     self._check_budget(stage)
                     if not candidates:
                         failures.add("held-note contact" if active else "no reachable finger/arm pose")
                     if state["path"]:
-                        # Prefer no move, then the nearest feasible wrist positions.
+                        # Rank by total soft cost first; joint distance is the tie-breaker.
                         candidates = sorted(candidates, key=lambda item: (
-                            not item.detail.get("fixed_arm", False),
-                            np.max(np.abs(item.arm_q - state["arm"])), item.cost))
+                            item.cost, np.max(np.abs(item.arm_q - state["arm"]))))
                     trials = 0
                     tested_poses = set()
                     for index, candidate in enumerate(candidates):
@@ -962,9 +1257,12 @@ class FingeringPlanner:
                 if "lift_positions" in candidate.detail:
                     previous_events = [event for old in state["path"]
                                        for event, _ in old["assignments"]]
-                    free = max((max(self.start_padding + event["end"],
-                                    state["observed"][event["id"]]["off"] / self.tempo_scale)
-                                for event in previous_events), default=0.0)
+                    free = max((max(
+                        self.start_padding + event["end"],
+                        state["observed"].get(event["id"], {}).get(
+                            "off", (self.start_padding + event["end"])
+                            * self.tempo_scale) / self.tempo_scale)
+                        for event in previous_events), default=0.0)
                     prepare = max(free + self.arm_safety / self.tempo_scale,
                                   press - candidate.detail.get("prepare_lead_sec", .06))
                     if prepare > press - dt + 1e-9:
@@ -980,9 +1278,14 @@ class FingeringPlanner:
                     failures.add(str(error))
                     self._log_trial(group, candidate, press, releases, str(error), budget)
                     break
-                edges, reason, checkpoint = self._probe_prefix(
-                    side, path, waypoints, hand_states, state["checkpoint"],
-                    budget["waypoints"][0]["move_after_sec"] if moving else None)
+                if self.dynamic_prefix:
+                    edges, reason, checkpoint = self._probe_prefix(
+                        side, path, waypoints, hand_states, state["checkpoint"],
+                        budget["waypoints"][0]["move_after_sec"] if moving else None)
+                else:
+                    # Geometry/timing search only; the final PlanRunner still
+                    # performs the strict continuous playback check.
+                    edges, reason, checkpoint = {}, None, None
                 self._log_trial(group, candidate, press, releases, reason, budget, edges)
                 if reason is None:
                     return {
@@ -1057,9 +1360,11 @@ class FingeringPlanner:
         events = [event for entry in state["path"] for event, _ in entry["assignments"]]
         if any(event["end"] > start + 1e-6 for event in events):
             return None, {"route": route, "held_note": True}
-        free = max(max(self.start_padding + event["end"],
-                       state["observed"][event["id"]]["off"] / self.tempo_scale)
-                   for event in events)
+        free = max(
+            max(self.start_padding + event["end"],
+                state["observed"].get(event["id"], {}).get("off", 0.0)
+                / self.tempo_scale)
+            for event in events)
         depart = free + self.arm_safety / self.tempo_scale
         settle = 2 * dt
         target_joints = [candidate.arm_q]
@@ -1293,6 +1598,7 @@ class FingeringPlanner:
                 "press_lead_sec": self.press_lead,
                 "release_lead_sec": self.release_lead,
                 "hand_transition_sec": self.hand_transition,
+                "press_depth_m": data.press_depth,
                 "timing_tolerance_sec": self.timing_tolerance,
                 "left_max_note": left_max_note,
                 "planner": {
@@ -1305,6 +1611,16 @@ class FingeringPlanner:
                     "arm_settle_error_rad": SIM_ARM_SETTLE_ERROR,
                     "arm_settle_speed_rad_sec": SIM_ARM_SETTLE_SPEED,
                     "min_hand_interval": self.min_hand_interval,
+                    "posture_weight": self.posture_weight,
+                    "continuity_weight": self.continuity_weight,
+                    "ik_candidate_limit": self.ik_candidate_limit,
+                },
+                "posture": {
+                    "elbow_drop_target_m": POSTURE_ELBOW_DROP_M,
+                    "elbow_lateral_target_m": POSTURE_ELBOW_LATERAL_M,
+                    "elbow_back_target_m": POSTURE_ELBOW_BACK_M,
+                    "joint_margin_target_rad": POSTURE_JOINT_MARGIN_RAD,
+                    "min_joint_margin_rad": POSTURE_MIN_JOINT_MARGIN_RAD,
                 },
             },
             "hands": {
@@ -1312,6 +1628,8 @@ class FingeringPlanner:
                     "ready_state": ready_state,
                     "arm_start": state["waypoints"][0]["joints"],
                     "arm_waypoints": arm_waypoints,
+                    "posture": [data.arm_posture(side, waypoint["joints"])
+                                for waypoint in arm_waypoints],
                     "hand_states": hand_states,
                     "events": events,
                 }

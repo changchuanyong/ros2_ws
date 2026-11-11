@@ -56,6 +56,8 @@ def main(argv=None):
     parser.add_argument("--package", type=Path, default=None,
                         help="rm_mujoco source or share directory")
     parser.add_argument("--scene-config", type=Path, default=None)
+    parser.add_argument("--press-depth", type=float, default=0.008,
+                        help="commanded fingertip depth below the key top (metres)")
     parser.add_argument("--pose-file", type=Path, default=None,
                         help="READY/PRESS calibration YAML; dual planning defaults to the simulation poses")
     parser.add_argument("--hand", choices=("left", "right", "both"), default="right")
@@ -67,6 +69,16 @@ def main(argv=None):
                         help="wall-clock search and joint verification budget")
     parser.add_argument("--prior-weight", type=float, default=2.0)
     parser.add_argument("--travel-weight", type=float, default=1.0)
+    parser.add_argument("--posture-weight", type=float, default=2.0,
+                        help="soft weight for elbow drop, joint margin and table clearance")
+    parser.add_argument("--continuity-weight", type=float, default=0.5,
+                        help="soft weight for staying close to the previous arm pose")
+    parser.add_argument("--ik-candidate-limit", type=int, default=2,
+                        help="number of ranked IK solutions tried per target")
+    parser.add_argument("--fast", action="store_true",
+                        help="flat wrist + two key offsets for layout regression")
+    parser.add_argument("--no-dynamic-prefix", action="store_true",
+                        help="skip per-candidate playback; the final joint check still runs")
     parser.add_argument("--tempo-scale", type=float, default=1.0)
     parser.add_argument("--start-padding", type=float, default=1.0)
     parser.add_argument("--arm-lead", type=float, default=0.10)
@@ -78,14 +90,17 @@ def main(argv=None):
     args = parser.parse_args(argv)
     for name in ("tempo_scale", "start_padding", "arm_lead", "press_lead",
                  "release_lead", "hand_transition", "min_hand_interval",
-                 "timing_tolerance", "prior_weight", "travel_weight"):
+                 "timing_tolerance", "prior_weight", "travel_weight",
+                 "posture_weight", "continuity_weight"):
         value = getattr(args, name)
         if not math.isfinite(value) or value < 0:
             parser.error(f"{name} must be finite and non-negative")
     if args.tempo_scale <= 0:
         parser.error("tempo_scale must be positive")
-    if args.beam_width <= 0 or args.candidate_limit <= 0:
-        parser.error("beam_width and candidate_limit must be positive")
+    if not math.isfinite(args.press_depth) or args.press_depth <= 0:
+        parser.error("press_depth must be finite and positive")
+    if args.beam_width <= 0 or args.candidate_limit <= 0 or args.ik_candidate_limit <= 0:
+        parser.error("beam_width, candidate_limit and ik_candidate_limit must be positive")
     model = planner = None
     scene_config = pose_file = None
     status = 1
@@ -96,7 +111,8 @@ def main(argv=None):
         package = args.package or _default_package()
         scene_config = args.scene_config or package / "config/piano_scene.yaml"
         pose_file = args.pose_file or _default_pose_file()
-        model = PianoHandModel(package, scene_config, pose_file)
+        model = PianoHandModel(package, scene_config, pose_file,
+                               press_depth=args.press_depth)
 
         def progress(**update):
             print(
@@ -110,6 +126,9 @@ def main(argv=None):
             candidate_limit=args.candidate_limit,
             prior_weight=args.prior_weight,
             travel_weight=args.travel_weight,
+            posture_weight=args.posture_weight,
+            continuity_weight=args.continuity_weight,
+            ik_candidate_limit=args.ik_candidate_limit,
             start_padding=args.start_padding,
             arm_lead=args.arm_lead,
             press_lead=args.press_lead,
@@ -118,7 +137,8 @@ def main(argv=None):
             min_hand_interval=args.min_hand_interval,
             timing_tolerance=args.timing_tolerance,
             tempo_scale=args.tempo_scale, fingering_mode=args.fingering_mode,
-            planning_budget_sec=args.planning_budget_sec, progress=progress)
+            planning_budget_sec=args.planning_budget_sec, fast=args.fast,
+            dynamic_prefix=not args.no_dynamic_prefix, progress=progress)
 
         def joint_check(candidate):
             from run_performance import PlanRunner

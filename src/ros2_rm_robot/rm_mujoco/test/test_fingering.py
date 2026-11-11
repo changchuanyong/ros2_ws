@@ -9,6 +9,7 @@ PACKAGE = Path(__file__).resolve().parents[1]
 SCENE = PACKAGE / "config/piano_scene.yaml"
 POSE = PACKAGE.parent / "rm_piano_player/config/right_hand_ode_to_joy.yaml"
 SIM_POSE = PACKAGE / "config/right_hand_piano_sim.yaml"
+SCENE_88 = PACKAGE / "config/piano_scene_88key.yaml"
 MODEL = PACKAGE / "models/rm_75_6fb_v_dual_l20.xml"
 CHORD_MELODY = PACKAGE / "test/fixtures/chord_melody.fingering.yaml"
 WIDE_MELODY = PACKAGE / "test/fixtures/wide_melody.fingering.yaml"
@@ -265,6 +266,54 @@ def test_pose_specific_lift_is_used_before_press_and_after_release(hand_model):
     assert states[0]["positions"] == states[2]["positions"] == lift
     assert states[0]["transition_sec"] == .025
     assert states[1]["positions"] == shape
+
+
+def test_88_key_layout_survives_the_geometric_prefilter():
+    import yaml
+    from optimize_88key_layout import evaluate
+
+    layout = yaml.safe_load(SCENE_88.read_text(encoding="utf-8"))
+    metrics = evaluate(layout)
+    assert metrics["coverage"] == 88, metrics
+    assert metrics["overlap"] >= 10, metrics
+    assert metrics["worst_nearest_m"] <= 0.80, metrics
+
+
+def test_posture_ranked_ik_drops_the_elbow_and_keeps_a_joint_margin():
+    from rm_mujoco.fingering import PLAY_R, orientation_rotation
+
+    model = PianoHandModel(PACKAGE, SCENE_88, SIM_POSE, press_depth=0.0075)
+    note, finger = 72, "index"
+    hand20 = model.compose([finger], [note])
+    desired_R = orientation_rotation((0, 0, 0), PLAY_R)
+    model.prepare_tip("right", finger, hand20, desired_R)
+    target = model.points[note - 21] + [0.0, 0.0, -model.press_depth]
+    solutions = model.solve_arm_solutions(
+        "right", target, [model.ready_arm_q["right"]], hand20, desired_R, finger,
+        posture={"previous": model.ready_arm_q["right"]}, limit=3)
+    assert solutions
+    best = solutions[0]
+    assert best["metrics"]["elbow_drop_m"] > 0.08, best
+    assert best["metrics"]["joint_margin_rad"] > 0.20, best
+    ready = model.arm_posture("right", model.ready_arm_q["right"])
+    assert best["score"] < model.posture_cost(ready)
+
+
+def test_posture_candidates_outrank_the_old_folded_pose(monkeypatch):
+    from rm_mujoco import fingering
+
+    monkeypatch.setattr(fingering, "STRICT_ORIENTATIONS", ((0, 0, 0),))
+    monkeypatch.setattr(fingering, "RELAX_ORIENTATIONS", ((0, 0, 0),))
+    monkeypatch.setattr(fingering, "STRICT_OFFSETS", ((0.0, 0.0),))
+    monkeypatch.setattr(fingering, "RELAX_OFFSETS", ((0.0, 0.0),))
+    model = PianoHandModel(PACKAGE, SCENE_88, SIM_POSE, press_depth=0.0075)
+    event = _event(note=72, finger="index")
+    candidates = model.geometry_candidates(
+        "right", [(event, "index")], posture_weight=2.0, continuity_weight=0.5)
+    assert candidates
+    best = min(candidates, key=lambda item: item.cost)
+    assert best.posture["elbow_drop_m"] > 0.08, best.posture
+    assert best.posture["joint_margin_rad"] > 0.20, best.posture
 
 
 def test_lift_preparation_rejects_a_command_collision(hand_model):

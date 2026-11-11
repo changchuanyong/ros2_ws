@@ -1,0 +1,39 @@
+# Static resting pose, third layout iteration.
+# - arm bases: x = -0.27 / +0.27 m;
+# - table moved further away from the piano: y = -0.58 m;
+# - hands lowered onto the keys with a relaxed 60% finger curl.
+# The fingertips touch the key surfaces (key angles remain 0; no press).
+# Left hand over G3 (MIDI 55), right hand over C5 (MIDI 72).
+format: rm75_static_pose/1
+role: home_reference
+scene: config/piano_scene_static5.yaml
+notes:
+  left: 55
+  right: 72
+hand_curl: 0.6
+playing:
+  rule: "Use this arm configuration as the home/reference posture for future playing."
+  ready_hand_curl: 0.25
+  ready_lift_m: 0.03
+  preserve:
+    - "upper arm raised from the table"
+    - "elbow near shoulder height; do not drop it toward the table"
+    - "forearm descending forward to the keyboard"
+    - "palm down, fingers pointing toward the keys"
+  note: "Do not freeze these joints for a whole piece; move the arm for other notes while keeping this posture family."
+
+arms:
+  left:
+    joints_rad: [-2.059087, -1.621110, 2.750937, 1.994508, 2.612697, 2.155555, -3.027617]
+    joints_deg: [-117.977, -92.883, 157.617, 114.277, 149.696, 123.504, -173.470]
+    elbow_height_relative_to_shoulder_m: -0.0129
+    joint_margin_rad: 0.0784
+  right:
+    joints_rad: [-0.994662, -1.596130, 0.408762, -1.923178, -2.532935, -2.094146, -0.131761]
+    joints_deg: [-56.990, -91.451, 23.420, -110.190, -145.127, -119.986, -7.549]
+    elbow_height_relative_to_shoulder_m: -0.0065
+    joint_margin_rad: 0.1399
+validation:
+  contacts: "fingertips on keys only; no table, keybed or cross-arm contact"
+  key_angles_rad: 0.0
+  note: "Static resting pose only; no key press, score, trajectory or RL."

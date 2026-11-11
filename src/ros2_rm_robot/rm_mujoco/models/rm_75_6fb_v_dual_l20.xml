@@ -68,38 +68,38 @@
       <body name="left_Link1" pos="0 0 0.2405">
         <joint name="left_joint1" type="hinge" axis="0 0 1" range="-3.106 3.106" damping="1" />
         <inertial pos="0.000241 -0.013273 -0.00995" mass="1.574" diaginertia="0.002487573 0.002321038 0.001450554" />
-        <geom name="left_Link1_visual" type="mesh" mesh="link_1" material="white" contype="0" conaffinity="0" />
+        <geom name="left_Link1_visual" type="mesh" mesh="link_1" material="white" contype="1" conaffinity="1" />
         <body name="left_Link2" pos="0 0 0" euler="-1.5708 0 0">
           <joint name="left_joint2" type="hinge" axis="0 0 1" range="-2.2689 2.2689" damping="1" />
           <inertial pos="-0.000357 -0.106789 0.005329" mass="1.217" diaginertia="0.003494121 0.000892721 0.003444080" />
-          <geom name="left_Link2_visual" type="mesh" mesh="link_2" material="white" contype="0" conaffinity="0" />
+          <geom name="left_Link2_visual" type="mesh" mesh="link_2" material="white" contype="1" conaffinity="1" />
           <body name="left_Link3" pos="0 -0.256 0" euler="1.5708 0 0">
             <joint name="left_joint3" type="hinge" axis="0 0 1" range="-3.106 3.106" damping="0.8" />
             <inertial pos="0.000003 -0.01398 -0.011324" mass="1.11" diaginertia="0.001836663 0.001498875 0.001062545" />
-            <geom name="left_Link3_visual" type="mesh" mesh="link_3" material="white" contype="0" conaffinity="0" />
+            <geom name="left_Link3_visual" type="mesh" mesh="link_3" material="white" contype="1" conaffinity="1" />
             <body name="left_Link4" pos="0 0 0" euler="-1.5708 0 0">
               <joint name="left_joint4" type="hinge" axis="0 0 1" range="-2.356 2.356" damping="0.8" />
               <inertial pos="-0.000005 -0.084658 0.004747" mass="0.685" diaginertia="0.001282444 0.000373013 0.001256177" />
-              <geom name="left_Link4_visual" type="mesh" mesh="link_4" material="white" contype="0" conaffinity="0" />
+              <geom name="left_Link4_visual" type="mesh" mesh="link_4" material="white" contype="1" conaffinity="1" />
               <body name="left_Link5" pos="0 -0.21 0" euler="1.5708 0 0">
                 <joint name="left_joint5" type="hinge" axis="0 0 1" range="-3.106 3.106" damping="0.5" />
                 <inertial pos="0.000078 -0.012937 -0.008781" mass="0.619" diaginertia="0.000627336 0.000542455 0.000370291" />
-                <geom name="left_Link5_visual" type="mesh" mesh="link_5" material="white" contype="0" conaffinity="0" />
+                <geom name="left_Link5_visual" type="mesh" mesh="link_5" material="white" contype="1" conaffinity="1" />
                 <body name="left_Link6" pos="0 0 0" euler="-1.5708 0 0">
                   <joint name="left_joint6" type="hinge" axis="0 0 1" range="-2.234 2.234" damping="0.5" />
                   <inertial pos="-0.000014 -0.078524 0.002819" mass="0.602" diaginertia="0.000780774 0.000289973 0.000763955" />
-                  <geom name="left_Link6_visual" type="mesh" mesh="link_6" material="white" contype="0" conaffinity="0" />
+                  <geom name="left_Link6_visual" type="mesh" mesh="link_6" material="white" contype="1" conaffinity="1" />
                   <body name="left_Link7" pos="0 -0.1845 0" euler="1.5708 0 0">
                     <joint name="left_joint7" type="hinge" axis="0 0 1" range="-6.28 6.28" damping="0.3" />
                     <inertial pos="0.001094 -0.000077 -0.010119" mass="0.144" diaginertia="0.000044123 0.000035078 0.000065445" />
-                    <geom name="left_Link7_visual" type="mesh" mesh="link_7" material="silver" contype="0" conaffinity="0" />
+                    <geom name="left_Link7_visual" type="mesh" mesh="link_7" material="silver" contype="1" conaffinity="1" />
                     <body name="left_camera_rolink" pos="-0.033 -0.0085 -0.05388" euler="1.5708 -1.5708 3.1416">
                       <joint name="left_camera_rojoint" type="hinge" axis="0 0 1" range="0 1.05" damping="0.1" />
                       <inertial pos="0.0080749 -0.044495 0.0085055" mass="0.019695" diaginertia="0.000015115 0.0000027638 0.00001399" />
-                      <geom name="left_camera_rolink_visual" type="mesh" mesh="camera_rolink" material="silver" contype="0" conaffinity="0" />
+                      <geom name="left_camera_rolink_visual" type="mesh" mesh="camera_rolink" material="silver" contype="1" conaffinity="1" />
                       <body name="left_camera_link" pos="0.029031 -0.10022 -0.0005" euler="0 1.5708 0">
                         <inertial pos="-0.009 0 -0.011436" mass="0.03915" diaginertia="0.0000072029 0.000007199 0.000011014" />
-                        <geom name="left_camera_link_visual" type="mesh" mesh="camera_link" material="camera" contype="0" conaffinity="0" />
+                        <geom name="left_camera_link_visual" type="mesh" mesh="camera_link" material="camera" contype="1" conaffinity="1" />
                       </body>
                     </body>
                     <body name="left_rm75_l20_flange" pos="0 0 0">
@@ -233,38 +233,38 @@
       <body name="right_Link1" pos="0 0 0.2405">
         <joint name="right_joint1" type="hinge" axis="0 0 1" range="-3.106 3.106" damping="1" />
         <inertial pos="0.000241 -0.013273 -0.00995" mass="1.574" diaginertia="0.002487573 0.002321038 0.001450554" />
-        <geom name="right_Link1_visual" type="mesh" mesh="link_1" material="white" contype="0" conaffinity="0" />
+        <geom name="right_Link1_visual" type="mesh" mesh="link_1" material="white" contype="1" conaffinity="1" />
         <body name="right_Link2" pos="0 0 0" euler="-1.5708 0 0">
           <joint name="right_joint2" type="hinge" axis="0 0 1" range="-2.2689 2.2689" damping="1" />
           <inertial pos="-0.000357 -0.106789 0.005329" mass="1.217" diaginertia="0.003494121 0.000892721 0.003444080" />
-          <geom name="right_Link2_visual" type="mesh" mesh="link_2" material="white" contype="0" conaffinity="0" />
+          <geom name="right_Link2_visual" type="mesh" mesh="link_2" material="white" contype="1" conaffinity="1" />
           <body name="right_Link3" pos="0 -0.256 0" euler="1.5708 0 0">
             <joint name="right_joint3" type="hinge" axis="0 0 1" range="-3.106 3.106" damping="0.8" />
             <inertial pos="0.000003 -0.01398 -0.011324" mass="1.11" diaginertia="0.001836663 0.001498875 0.001062545" />
-            <geom name="right_Link3_visual" type="mesh" mesh="link_3" material="white" contype="0" conaffinity="0" />
+            <geom name="right_Link3_visual" type="mesh" mesh="link_3" material="white" contype="1" conaffinity="1" />
             <body name="right_Link4" pos="0 0 0" euler="-1.5708 0 0">
               <joint name="right_joint4" type="hinge" axis="0 0 1" range="-2.356 2.356" damping="0.8" />
               <inertial pos="-0.000005 -0.084658 0.004747" mass="0.685" diaginertia="0.001282444 0.000373013 0.001256177" />
-              <geom name="right_Link4_visual" type="mesh" mesh="link_4" material="white" contype="0" conaffinity="0" />
+              <geom name="right_Link4_visual" type="mesh" mesh="link_4" material="white" contype="1" conaffinity="1" />
               <body name="right_Link5" pos="0 -0.21 0" euler="1.5708 0 0">
                 <joint name="right_joint5" type="hinge" axis="0 0 1" range="-3.106 3.106" damping="0.5" />
                 <inertial pos="0.000078 -0.012937 -0.008781" mass="0.619" diaginertia="0.000627336 0.000542455 0.000370291" />
-                <geom name="right_Link5_visual" type="mesh" mesh="link_5" material="white" contype="0" conaffinity="0" />
+                <geom name="right_Link5_visual" type="mesh" mesh="link_5" material="white" contype="1" conaffinity="1" />
                 <body name="right_Link6" pos="0 0 0" euler="-1.5708 0 0">
                   <joint name="right_joint6" type="hinge" axis="0 0 1" range="-2.234 2.234" damping="0.5" />
                   <inertial pos="-0.000014 -0.078524 0.002819" mass="0.602" diaginertia="0.000780774 0.000289973 0.000763955" />
-                  <geom name="right_Link6_visual" type="mesh" mesh="link_6" material="white" contype="0" conaffinity="0" />
+                  <geom name="right_Link6_visual" type="mesh" mesh="link_6" material="white" contype="1" conaffinity="1" />
                   <body name="right_Link7" pos="0 -0.1845 0" euler="1.5708 0 0">
                     <joint name="right_joint7" type="hinge" axis="0 0 1" range="-6.28 6.28" damping="0.3" />
                     <inertial pos="0.001094 -0.000077 -0.010119" mass="0.144" diaginertia="0.000044123 0.000035078 0.000065445" />
-                    <geom name="right_Link7_visual" type="mesh" mesh="link_7" material="silver" contype="0" conaffinity="0" />
+                    <geom name="right_Link7_visual" type="mesh" mesh="link_7" material="silver" contype="1" conaffinity="1" />
                     <body name="right_camera_rolink" pos="-0.033 -0.0085 -0.05388" euler="1.5708 -1.5708 3.1416">
                       <joint name="right_camera_rojoint" type="hinge" axis="0 0 1" range="0 1.05" damping="0.1" />
                       <inertial pos="0.0080749 -0.044495 0.0085055" mass="0.019695" diaginertia="0.000015115 0.0000027638 0.00001399" />
-                      <geom name="right_camera_rolink_visual" type="mesh" mesh="camera_rolink" material="silver" contype="0" conaffinity="0" />
+                      <geom name="right_camera_rolink_visual" type="mesh" mesh="camera_rolink" material="silver" contype="1" conaffinity="1" />
                       <body name="right_camera_link" pos="0.029031 -0.10022 -0.0005" euler="0 1.5708 0">
                         <inertial pos="-0.009 0 -0.011436" mass="0.03915" diaginertia="0.0000072029 0.000007199 0.000011014" />
-                        <geom name="right_camera_link_visual" type="mesh" mesh="camera_link" material="camera" contype="0" conaffinity="0" />
+                        <geom name="right_camera_link_visual" type="mesh" mesh="camera_link" material="camera" contype="1" conaffinity="1" />
                       </body>
                     </body>
                     <body name="right_rm75_l20_flange" pos="0 0 0">
