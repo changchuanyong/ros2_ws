@@ -1,0 +1,17 @@
+# Direct L20 control over PianoVAM tasks; RM75 arms stay at the verified home pose.
+scene_config: config/piano_scene_static5.yaml
+home_pose: config/static_pose_reference.yaml
+pose_file: config/right_hand_piano_sim.yaml
+control_dt: 0.02
+action_scale: 8.0
+ready_curl: 0.25
+active_hands: [left, right]
+lookahead_sec: [0.0, 0.05, 0.1, 0.2, 0.4]
+reward:
+  key: 1.0
+  finger: 0.2
+  timing: 0.5
+  energy: 0.005
+  action: 0.01
+  safety: 2.0
+

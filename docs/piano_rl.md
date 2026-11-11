@@ -4,6 +4,10 @@
 
 本入口在已验证的 `piano_performance/1` 参考轨迹上学习 L20 ROOT/TIP 残差。支持原 PianoVAM 右手数据路径，以及冻结《两只老虎》双手 40 音路径。机械臂仍跟随参考轨迹，物理验收仍由原有 `PlanRunner` 完成；不是完整复现 RoboPianist，也不会连接或控制真机。
 
+无参考轨迹、固定高位双臂的直接 L20 控制环境是独立入口，见
+[piano_direct_rl.md](piano_direct_rl.md)；第 00–02 批只建立任务格式和环境，
+不训练 PPO。
+
 ## 1. Conda 环境
 
 在工作空间根目录执行：

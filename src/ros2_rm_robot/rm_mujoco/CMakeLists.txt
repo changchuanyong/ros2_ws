@@ -11,6 +11,10 @@ install(
     config/rm_75_6fb_v_dual_l20_mujoco_control.urdf.xacro
     config/rm_75_6fb_v_dual_l20_mujoco_controllers.yaml
     config/piano_scene.yaml
+    config/piano_scene_88key.yaml
+    config/piano_scene_static5.yaml
+    config/static_pose_reference.yaml
+    config/piano_direct_env.yaml
     config/right_hand_piano_sim.yaml
     config/right_tail_v29.yaml
     config/piano_rl_environment.yaml
@@ -46,17 +50,36 @@ install(
     scripts/import_pianovam.py
     scripts/plan_performance.py
     scripts/run_performance.py
+    scripts/analyze_88_keys.py
+    scripts/optimize_88key_layout.py
+    scripts/retry_dynamic_failures.py
+    scripts/render_key_postures.py
+    scripts/render_performance_video.py
     scripts/calibrate_piano_chord.py
     scripts/verify_right_tail.py
     scripts/verify_two_tigers.py
     scripts/train_piano_rl.py
     scripts/prepare_piano_rl.py
     scripts/evaluate_piano_robustness.py
+    scripts/prepare_pianovam_tasks.py
+    scripts/check_piano_direct_env.py
+    scripts/train_piano_direct.py
   DESTINATION lib/${PROJECT_NAME}
 )
 
 install(
-  FILES scripts/run_performance.py scripts/plan_performance.py scripts/import_pianovam.py
+  FILES
+    scripts/run_performance.py
+    scripts/plan_performance.py
+    scripts/import_pianovam.py
+    scripts/analyze_88_keys.py
+    scripts/optimize_88key_layout.py
+    scripts/retry_dynamic_failures.py
+    scripts/render_key_postures.py
+    scripts/render_performance_video.py
+    scripts/prepare_pianovam_tasks.py
+    scripts/check_piano_direct_env.py
+    scripts/train_piano_direct.py
   DESTINATION share/${PROJECT_NAME}/scripts
 )
 
@@ -88,6 +111,10 @@ if(BUILD_TESTING)
   ament_add_pytest_test(fingering test/test_fingering.py TIMEOUT 180)
   ament_add_pytest_test(right_tail test/test_right_tail.py TIMEOUT 180)
   ament_add_pytest_test(piano_rl test/test_piano_rl.py TIMEOUT 180)
+  ament_add_pytest_test(pianovam_tasks test/test_pianovam_tasks.py TIMEOUT 60)
+  ament_add_pytest_test(piano_direct_reward test/test_piano_direct_reward.py TIMEOUT 60)
+  ament_add_pytest_test(piano_direct_eval test/test_piano_direct_eval.py TIMEOUT 60)
+  ament_add_pytest_test(piano_direct test/test_piano_direct.py TIMEOUT 180)
   ament_add_pytest_test(two_tigers test/test_two_tigers.py TIMEOUT 180)
 endif()
 
