@@ -3,6 +3,7 @@
 基于 ROS 2 Humble 的机器人钢琴工作空间，面向双 RM75-6FB-V 机械臂、双 L20 灵巧手和 MIDI 数字钢琴。支持 MuJoCo 仿真、MoveIt / RViz 规划、真机连接、右手固定姿态演奏及 MIDI / 压力同步录制。
 
 [使用指南](docs/usage.md) · [欢乐颂操作流程](docs/piano_workflow.md) · [MIDI 测速](docs/speed_test.md) · [故障排查](docs/usage.md#常见问题)
+[强化学习主线与臂手课程](docs/piano_learning_mainline.md)：RoboPianist＋RM75/L20＋DroQ 的路线决策、机械臂参与方式和阶段验收要求。
 
 ## 环境与构建
 
