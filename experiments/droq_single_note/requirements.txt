@@ -1,0 +1,25 @@
+# CPU baseline, Python 3.10. Versions from the recorded Jetson CPU environment.
+chex==0.1.87
+distrax==0.1.5
+dm-control==1.0.21
+dm-env==1.6
+dm-env-wrappers==0.0.13
+flax==0.10.2
+imageio==2.38.0
+jax==0.4.35
+jaxlib==0.4.35
+ml-dtypes==0.5.4
+mujoco==3.2.7
+mujoco-utils==0.0.6
+note-seq==0.0.5
+numpy==1.26.4
+optax==0.2.4
+orbax-checkpoint==0.10.3
+pretty-midi==0.2.11.post0
+protobuf==4.25.3
+PyAudio==0.2.14
+pyfluidsynth==1.4.0
+scikit-learn==1.4.2
+scipy==1.15.3
+tensorflow-probability==0.25.0
+tensorstore==0.1.78

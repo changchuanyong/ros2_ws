@@ -45,6 +45,7 @@
 
 | AI / 工具 | 运行环境 | 主要负责 | 最近同步 | 备注 |
 | --- | --- | --- | --- | --- |
+| Codex Desktop / droq-repro | Windows、Ubuntu 22.04 WSL、Jetson CPU MuJoCo | T-0061 单音复现入口、T-0062 训练工程迁入工作空间 | 2026-11-17 10:25 | T-0062 的仓内默认路径在无旧目录的 Ubuntu 临时副本通过源码锁校验、CLI 检查及 5 项测试；Jetson 仿真证据见 T-0061 |
 | Codex Desktop / piano-validation | Windows 编辑 + Jetson / MuJoCo | 同时按键、双手、跨曲及真机前置验证 | 2026-11-11 15:44 | T-0031 仿真验证结束，真机网络和串口待接通 |
 | Codex Desktop / right-warm-ppo | Windows 编辑 + Jetson / MuJoCo | 固定腕 70/73 动作初始化与 PPO 迁移 | 2026-11-11 15:23 | T-0030 留出原谱 5/5，PPO 未改变边沿 |
 | Codex Desktop / right-key-switch | Windows 编辑 + Jetson / MuJoCo | 右手高位固定腕异键原谱验收 | 2026-11-11 15:05 | T-0029 70→73 物理通过，PPO 仍待验证 |
@@ -74,6 +75,8 @@
 
 | 任务号 | 任务 | 负责人 | 状态 | 涉及文件 / 包 | 开始 | 最近更新 | 说明 |
 | --- | --- | --- | --- | --- | --- | --- | --- |
+| T-0062 | 将 RoboPianist RM75 训练工程迁入工作空间 | Codex Desktop / droq-repro | 完成 | `experiments/robopianist_rl/`、`experiments/droq_single_note/` 的入口和说明、`docs/piano_learning_mainline.md`、`docs/piano_imitation_data.md`、本台账自身行 | 2026-11-17 10:21 | 2026-11-17 10:25 | 已迁入全部 13 个训练工程工作文件；仓内默认路径在无旧目录的隔离副本通过源码锁校验和 5 项测试。保留外部 `robopianist` 环境依赖，旧训练目录由用户处理 |
+| T-0061 | DroQ 单音基线与独立复现入口 | Codex Desktop / droq-repro | 完成 | `experiments/droq_single_note/`、`docs/piano_learning_mainline.md`、本台账自身行、`.validation/droq-single-note-t0061/` | 2026-11-17 09:46 | 2026-11-17 10:16 | 用户授权上传后，Jetson CPU 使用新入口独立重放冻结 T-0055：F1=1、起音 +12.0 ms、释放 +62.792 ms、零碰撞/限位、探针动作逐位一致；600 步冒烟完成 100 次更新、23 个完整回合、零失稳、新检查点重载逐位一致。仅仿真 |
 | T-0031 | 同时按键、双手、跨曲和真机条件验证 | Codex Desktop / piano-validation | 待验证 | 本台账、`docs/piano_direct_rl.md`、本地及 Jetson 隔离验证目录 | 2026-11-11 15:36 | 2026-11-11 15:44 | 仿真和整曲覆盖核验完成，真机未枚举 L20 串口，RM75 地址未响应 |
 | T-0030 | 右手 70/73 动作初始化与 PPO 原谱迁移对照 | Codex Desktop / right-warm-ppo | 完成 | 本台账、`docs/piano_direct_rl.md`、本地与 Jetson 隔离实验目录 | 2026-11-11 15:13 | 2026-11-11 15:23 | 规则、行为克隆、PPO 均通过合成留出 15/16 和单片段原谱 5/5 |
 | T-0029 | 右手固定腕的原谱异键和多指训练准入 | Codex Desktop / right-key-switch | 待验证 | 本台账、`docs/piano_direct_rl.md`、本地与 Jetson 隔离实验目录 | 2026-11-11 14:44 | 2026-11-11 15:05 | 70→73 原谱脚本 5/5；75 干净按放最长 74 ms；两组 PPO 各 4,096 步，原谱均 0/5 |
@@ -112,6 +115,8 @@
 
 | 路径 | 占用者 | 开始 | 状态 | 说明 |
 | --- | --- | --- | --- | --- |
+| `experiments/robopianist_rl/`、`experiments/droq_single_note/{reproduce.py,README.md,test_reproduce.py}`、`docs/piano_learning_mainline.md`、`docs/piano_imitation_data.md`、本台账自身行 | Codex Desktop / droq-repro | 2026-11-17 10:25 | 已释放 | T-0062 迁移完成并核对新布局 |
+| `experiments/droq_single_note/`、`docs/piano_learning_mainline.md`、本台账自身行 | Codex Desktop / droq-repro | 2026-11-17 10:16 | 已释放 | T-0061 入口落地，仿真重放和冒烟通过 |
 | 本台账、`docs/piano_direct_rl.md`、本地 `.validation/piano_validation_20261111/` 与 Jetson `~/arm_posture_20261109/piano_validation_20261111/` | Codex Desktop / piano-validation | 2026-11-11 15:36 | 已释放 | T-0031 报告已取回，进程已结束 |
 | 本台账、`docs/piano_direct_rl.md`、本地 `.validation/piano_right_warm_ppo_20261111/` 与 Jetson `~/arm_posture_20261109/piano_right_warm_ppo_20261111/` | Codex Desktop / right-warm-ppo | 2026-11-11 15:13 | 已释放 | T-0030 评估完成，取回报告与检查点 |
 | 本台账、`docs/piano_direct_rl.md`、本地 `.validation/piano_right_key_switch_20261111/` 与 Jetson `~/arm_posture_20261109/piano_right_key_switch_20261111/` | Codex Desktop / right-key-switch | 2026-11-11 14:44 | 已释放 | T-0029 已取回输入、物理报告和模型，相关进程已结束 |
@@ -150,6 +155,9 @@
 
 | 记录号 | 时间 | AI | 类型 | 涉及文件 | 改了什么 | 验证 | commit | 遗留 |
 | --- | --- | --- | --- | --- | --- | --- | --- | --- |
+| C-20261117-03 | 2026-11-17 10:25 | Codex Desktop / droq-repro | chore | `experiments/robopianist_rl/`、`experiments/droq_single_note/{reproduce.py,README.md,test_reproduce.py}`、`docs/piano_learning_mainline.md`、`docs/piano_imitation_data.md`、本台账自身行 | 迁入训练工程 13 个工作文件，保留原本地修改、新文件及 Apache 许可证。调整复现默认路径和现用说明，历史台账保留原位置 | Ubuntu 22.04 WSL：不含旧训练检出的隔离副本通过所有源码 SHA256 校验、train/replay 参数入口、旧结果验收、Bash 语法及 5 项单元测试。Windows：迁入文件中 11 个字节一致、2 个仅更新文档；活跃路径检查和 git diff --check 通过 | 未提交 | 本轮验证迁移路径，既有 Jetson MuJoCo 证据见 T-0061；默认依赖相邻 `robopianist` 环境 |
+| C-20261117-02 | 2026-11-17 10:16 | Codex Desktop / droq-repro | test | 本台账自身行、`.validation/droq-single-note-t0061/`；Jetson `~/droq-t0061.TaPkpAEF/` | 用户明确授权上传仿真输入。锁定源码在独立目录运行，重放前核对冻结检查点 SHA256；取回重放和冒烟 JSON 并重新跑结果门槛 | Jetson CPU MuJoCo：冻结 20k 检查点重放 F1=1、起音 +12.0 ms、释放 +62.792 ms、零碰撞/限位、重载逐位一致。600 步、100 次更新、23 完整回合、0 物理失稳、探索 5 碰撞帧、最终评估 0 碰撞/限位，重载逐位一致 | 未提交 | 本次为冻结检查点重放与 600 步训练冒烟；未重训 20k、未真机 |
+| C-20261117-01 | 2026-11-17 09:57 | Codex Desktop / droq-repro | feat | `experiments/droq_single_note/`、`docs/piano_learning_mainline.md`、本台账自身行 | T-0061：纳入独立训练入口、T-0055 环境与初始姿态、历史任务和 SHA256 源码锁；另起进程重载，检查实际 NoteOn/Off、误触、碰撞和限位 | Ubuntu 22.04 WSL：4 项结果门槛单元测试通过。Windows：源码锁校验和冻结报告检查通过，历史事件为起音 +12.0 ms、释放 +62.792 ms、评估零碰撞；未重跑 MuJoCo | 未提交 | Jetson 上传被自动审批拒绝，WSL 缺仿真依赖；待验证 600 步冒烟与冻结检查点独立重放 |
 | C-20261111-06 | 2026-11-11 15:44 | Codex Desktop / piano-validation | test | T-0031 登记路径 | 复验同手并按、双手固定腕合奏、跨录音和快速重击，核算官方整曲音符覆盖，检查真机连接条件 | Jetson MuJoCo：左手脚本并按 2/3，右手脚本 0/81、PPO 0/3；双手脚本 3/3、独立策略 0/3；四份录音六个单音片段 18/18，快重复音 0/6。9 份整曲两键覆盖上限 2.71%–10.28%；只读核验真机无 L20 USB 串口，两臂配置 IP 均未回复 ping | 未提交 | 右手并按时序、左手双手场景短 36 ms、跨曲整曲和真机仍待解决 |
 | C-20261111-05 | 2026-11-11 15:23 | Codex Desktop / right-warm-ppo | test | T-0030 登记路径 | 已验证动作库、48 段合成课程、行为克隆初始化和 3,072 步 PPO，比较原谱留出与合成留出 | Jetson MuJoCo：训练预检 48/48，三组留出 15/16 与原谱 5/5，初始化和 PPO 共 21 个配对回合边沿相同；重载模型原谱 5/5 边沿一致，取回五个文件哈希匹配 | 未提交 | 一段原谱和两个已标定键；未测出 PPO 收益，双音并按和跨曲仍待验证 |
 | C-20261111-04 | 2026-11-11 15:05 | Codex Desktop / right-key-switch | test | T-0029 登记路径 | 提取两份录音的原谱异键，筛查固定腕食指、无名指、小指，运行四通道 PPO 对照 | Jetson MuJoCo 3.3.7：70→73 脚本 5/5，75 两种状态各补测 1,458 组仍最长 74 ms；两组 PPO 各 4,096 步，原谱 0/5，训练课程回查 0/16；输入原时序逐事件核对，报告和模型 SHA256 匹配 | 未提交 | 70→73 物理基准已建立，多指策略及跨曲泛化待验证 |
