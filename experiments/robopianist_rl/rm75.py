@@ -9,6 +9,8 @@ import pickle
 import subprocess
 import time
 
+from workspace_runtime import use_workspace_robopianist
+
 os.environ.setdefault('JAX_PLATFORMS', 'cpu')
 os.environ.setdefault('MUJOCO_GL', 'egl')
 os.environ.setdefault('OPENBLAS_NUM_THREADS', '1')
@@ -17,6 +19,8 @@ os.environ.setdefault('OMP_NUM_THREADS', '1')
 import numpy as np
 import dm_env_wrappers as wrappers
 from dm_control.rl.control import PhysicsError
+
+use_workspace_robopianist()
 from robopianist import suite
 
 ENVIRONMENT = 'RoboPianist-debug-RM75TwoNotes-v0'

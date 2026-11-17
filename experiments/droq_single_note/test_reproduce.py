@@ -1,28 +1,40 @@
 from contextlib import redirect_stdout
 from io import StringIO
 import json
+import os
 from pathlib import Path
+import subprocess
 import sys
 from tempfile import TemporaryDirectory
 import unittest
 from unittest.mock import patch
 
-from reproduce import check_result, main, read_json
+from reproduce import HERE, MESH_PREFIX, ROBOPIANIST, check_result, main, read_json, stage_sources
 
 
 class TrainingSourceLayoutTest(unittest.TestCase):
-    def test_default_training_sources_work_without_neighboring_checkouts(self):
-        lock = read_json(Path(__file__).with_name("sources.json"))
-        lock["robopianist"]["files"] = {}
+    def test_default_training_and_runtime_sources_are_bundled(self):
         with (
-            TemporaryDirectory() as neighbors,
-            patch("reproduce.CODE", Path(neighbors)),
-            patch("reproduce.read_json", return_value=lock),
             patch.object(sys, "argv", ["reproduce.py", "check-sources"]),
             redirect_stdout(StringIO()) as output,
         ):
             main()
         self.assertEqual(output.getvalue().strip(), "Source locks verified")
+
+    def test_staged_runtime_materializes_meshes_and_imports_without_soundfont(self):
+        lock = read_json(HERE / "sources.json")
+        mesh_paths = [name for name in lock["robopianist"]["files"] if name.startswith(MESH_PREFIX)]
+        self.assertEqual(len(mesh_paths), 37)
+        with TemporaryDirectory() as output:
+            stage = Path(output)
+            stage_sources(ROBOPIANIST, HERE.parent / "robopianist_rl", stage)
+            self.assertTrue(all((stage / mesh).is_file() for mesh in mesh_paths))
+            env = dict(os.environ, PYTHONPATH=str(stage), HOME=str(stage), USERPROFILE=str(stage))
+            env.pop("ROBOPIANIST_SOUNDFONT", None)
+            subprocess.run(
+                [sys.executable, "-B", "-c", "import robopianist; assert not robopianist.SF2_PATH.exists()"],
+                cwd=stage, env=env, check=True,
+            )
 
 
 class BaselineResultTest(unittest.TestCase):

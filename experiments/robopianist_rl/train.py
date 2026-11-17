@@ -11,7 +11,9 @@ from tqdm import tqdm
 import sac
 import specs
 import replay
+from workspace_runtime import use_workspace_robopianist
 
+use_workspace_robopianist()
 from robopianist import suite
 import dm_env_wrappers as wrappers
 import robopianist.wrappers as robopianist_wrappers
@@ -36,8 +38,8 @@ class Args:
     tags: str = ""
     notes: str = ""
     mode: str = "disabled"
-    environment_name: str = "RoboPianist-debug-TwinkleTwinkleRousseau-v0"
-    robot: str = "shadow_hand"
+    environment_name: str = "RoboPianist-debug-TwinkleTwinkleLittleStar-v0"
+    robot: str = "rm75_l20"
     n_steps_lookahead: int = 10
     trim_silence: bool = False
     gravity_compensation: bool = False
@@ -56,7 +58,7 @@ class Args:
     record_dir: Optional[Path] = None
     record_every: int = 1
     record_resolution: Tuple[int, int] = (480, 640)
-    camera_id: Optional[str | int] = "piano/back"
+    camera_id: Optional[str | int] = "rm75_overview"
     action_reward_observation: bool = False
     agent_config: sac.SACConfig = sac.SACConfig()
 
@@ -65,7 +67,7 @@ def prefix_dict(prefix: str, d: dict) -> dict:
     return {f"{prefix}/{k}": v for k, v in d.items()}
 
 
-def get_env(args: Args, record_dir: Optional[Path] = None):
+def get_env(args: Args, record_dir: Optional[Path] = None, *, evaluate=False):
     env = suite.load(
         environment_name=args.environment_name,
         robot=args.robot,
@@ -96,14 +98,12 @@ def get_env(args: Args, record_dir: Optional[Path] = None):
             height=args.record_resolution[0],
             width=args.record_resolution[1],
         )
-        env = wrappers.EpisodeStatisticsWrapper(
-            environment=env, deque_size=args.record_every
-        )
+    window = args.record_every if record_dir is not None else 1
+    env = wrappers.EpisodeStatisticsWrapper(environment=env, deque_size=window)
+    if evaluate or record_dir is not None:
         env = robopianist_wrappers.MidiEvaluationWrapper(
-            environment=env, deque_size=args.record_every
+            environment=env, deque_size=window
         )
-    else:
-        env = wrappers.EpisodeStatisticsWrapper(environment=env, deque_size=1)
     if args.action_reward_observation:
         env = wrappers.ObservationActionRewardWrapper(env)
     env = wrappers.ConcatObservationWrapper(env)
@@ -142,7 +142,7 @@ def main(args: Args) -> None:
     )
 
     env = get_env(args)
-    eval_env = get_env(args, record_dir=experiment_dir / "eval")
+    eval_env = get_env(args, record_dir=args.record_dir, evaluate=True)
 
     spec = specs.EnvironmentSpec.make(env)
 
@@ -198,9 +198,10 @@ def main(args: Args) -> None:
             log_dict = prefix_dict("eval", eval_env.get_statistics())
             music_dict = prefix_dict("eval", eval_env.get_musical_metrics())
             wandb.log(log_dict | music_dict, step=i)
-            video = wandb.Video(str(eval_env.latest_filename), fps=4, format="mp4")
-            wandb.log({"video": video, "global_step": i})
-            eval_env.latest_filename.unlink()
+            if args.record_dir is not None:
+                video = wandb.Video(str(eval_env.latest_filename), fps=4, format="mp4")
+                wandb.log({"video": video, "global_step": i})
+                eval_env.latest_filename.unlink()
 
         if i % args.log_interval == 0:
             wandb.log({"train/fps": int(i / (time.time() - start_time))}, step=i)

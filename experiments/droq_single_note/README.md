@@ -4,11 +4,10 @@
 
 ## 环境准备
 
-使用 Ubuntu 22.04 或 Jetson Linux、Python 3.10。训练源码随本工作空间提供；仿真需要相邻的 `robopianist` 检出目录，也可用全局参数 `--robopianist` 指定位置。
+使用 Ubuntu 22.04 或 Jetson Linux、Python 3.10。训练和重放默认使用仓内的 [RoboPianist 仿真运行时](../../third_party/robopianist/README.md) 和 [训练源码](../robopianist_rl/README.md)。
 
-- RoboPianist 源码以 `0d9736c64eba5faafdf214ed7d38d648ffbd5c7f` 为基底，需带项目现有的 RM75/L20 接入和模型资源。RoboPianist 导入时需要 SoundFont，默认读取该检出的 `robopianist/soundfonts/TimGM6mb.sf2`，也可用 `--soundfont /path/to/file.sf2` 提供本机已有文件。
-- [仓内训练源码](../robopianist_rl/README.md)包含 `rm75.py`、JAX 兼容改动和原训练工具。复验隔离快照时可以通过全局参数 `--training` 指向同一版本的训练源码。
-- [源码清单](sources.json)按文件内容固定接入版本。入口校验文件后在临时目录组装独立副本，并注入随本目录保存的 [历史 Composer 任务](overlay/piano_with_rm75_l20.py)。源检出目录可在仿真期间继续使用。
+- [源码清单](sources.json)按文件内容固定运行时和训练版本。入口校验仓内 Python 源码、历史 Composer 任务及 `rm_mujoco` 的 37 个网格，再在临时目录组装运行副本。
+- 无音频仿真无需 SoundFont。复验兼容的隔离快照时，可通过全局参数 `--robopianist` 和 `--training` 指定源码目录；`--soundfont` 可指定音色文件。
 - 在独立环境安装 [Python 依赖](requirements.txt)。RoboPianist 运行环境需有 FluidSynth、PortAudio 及 MuJoCo 可用的 EGL。已有 Jetson CPU 环境可直接复用。
 
 ```bash

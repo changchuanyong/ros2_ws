@@ -2,13 +2,13 @@
   "robopianist": {
     "base_commit": "0d9736c64eba5faafdf214ed7d38d648ffbd5c7f",
     "files": {
-      "robopianist/__init__.py": "455551d6731b705b6972ebe3e4156e7d0f65f4a1ec28d5a8299344be63652751",
+      "robopianist/__init__.py": "f07e619585443e66e0240f0d9e748ddbf975e9197a7f5460f597772bdf9c0c1d",
       "robopianist/models/__init__.py": "043fb6477b3ef9e219f95c974d81fd96532473afdf831287baf7d474d89d99b8",
       "robopianist/models/arenas/__init__.py": "90f48f637cee8d263f844def8a6e1d55e05e9c783fb0a706481c0e3779268a62",
       "robopianist/models/arenas/stage.py": "359b1fb9aa8f550494c6543de93bebf1dfe1b9c5b5265a791c254912e24b55e9",
       "robopianist/models/hands/__init__.py": "557e4440763c507a87ec0cbb0d8967c602f81c41c08efd0feba6f67b41825299",
       "robopianist/models/hands/base.py": "dcea030d0d6e6d863d8d974a3cf72cd992571192705fc0c5fd361a8d73e5d489",
-      "robopianist/models/hands/rm75_l20.py": "9f6ff11988be1b9cf79c03ec3a84a00ad21d8568e9087cd7de44ec55146785c3",
+      "robopianist/models/hands/rm75_l20.py": "e0db24e12f07c1b81afc40f06ddcf438c438ec45ece80c0258458fa930a7d900",
       "robopianist/models/hands/rm75_l20_mapping.py": "ce340cccfb575fd3b7f5a24f024a4de56c73fc969463df1a9d171ad9e0e822e1",
       "robopianist/models/hands/shadow_hand.py": "3d5edd8b12733ef9bd437067c03d3758b7a2c3e332b901b132786a26c4b80af4",
       "robopianist/models/hands/shadow_hand_constants.py": "d8df15e4e0cd35144a473cdd0025a1acbec930a8727719b18e12229deee07a4d",
@@ -60,18 +60,13 @@
       "robopianist/music/__init__.py": "ce9dd2720b1ead91c22f241a1600954435504f0544a17301782373b493534c16",
       "robopianist/music/audio.py": "b57c15dd1e33093f3baa5949298e222020cdc914fa17845e3acad0dc20e2d4cc",
       "robopianist/music/constants.py": "d9e6d964bcefea57b9b20b72f4171c7fd11e4c93d704e85be425b56720c5511a",
-      "robopianist/music/data/README.md": "3a2143971eb8bacd5358767306234818571d51648221ff1a7554456fe17f4cad",
-      "robopianist/music/data/rousseau/nocturne-trimmed.mid": "f6886fc10b4fff9a020a7190a7e16238105685e8654a1082065de9503e3fcaf0",
-      "robopianist/music/data/rousseau/twinkle-twinkle-trimmed.mid": "af583c13275d4fd1477f7c6d19b20714f470a40ccf84084b525fef027c14ed98",
       "robopianist/music/library.py": "a75ed9c349413fc4c8fb99c8db4fbfa6433b8102c972333ef2098c784891086c",
       "robopianist/music/midi_file.py": "1cf8654f74c2f532b3d86f9b6b5051de9cc617056f4f9a88ac9b642527c19ca5",
       "robopianist/music/midi_message.py": "b6e1a6e8eb2d7fa839ef2422c357e661c0924bfa20fcd00b454c9d2f0bffa268",
       "robopianist/music/piano_roll.py": "233b26a6811bd652b268f9b8e8244db26855198b0d5067963c0edab32b8f13cd",
       "robopianist/music/synthesizer.py": "1e0a1fde89863c027317dd29646070c4c5dae16360991fbc62db7fc8757c1370",
-      "robopianist/suite/README.md": "7bede21976c4867ecd0fc8dfa3e6074e701975e443c12a6a0c5720d0f6b87448",
       "robopianist/suite/__init__.py": "3864c537e2f900a8a8cdec3922890f375ca9c089d3e6a1d6fd229aa7f0ed165c",
       "robopianist/suite/composite_reward.py": "230a0f5fe5ea6d282d810cc452e18a2f9d017f6aabee16ca493203fe66c4fb1b",
-      "robopianist/suite/robopianist.png": "b92424b126171d06b40a17cc5d18b89e8f3ee83bf514628f102af5c1c1009f29",
       "robopianist/suite/tasks/__init__.py": "e94ceaa70161f6e04d02c0eb9d60b394c3990cc3c01c38dfa56c178ed7edfa9a",
       "robopianist/suite/tasks/base.py": "3d22b9aef70a7b6804a94d64461eb3153353232171eb982efd36efa08d6fd6f3",
       "robopianist/suite/tasks/piano_with_one_shadow_hand.py": "4c40717616f2f654c8b80c664771d16f5b92f2d28ea630b6049386bc7396d85f",
@@ -91,9 +86,10 @@
       "distributions.py": "737c4681d0b5acd8d7b56e32b400a5bb4cafc59967b9244e1b94d2b59f203e0a",
       "networks.py": "8b6996a6737d102445c4b4e1b09dd56afcb666c80beffc48b080cdb009dd7644",
       "replay.py": "f5dc84bc74fdce6fa1b74e5a77957481fd7d5946ccae2d59c6f4a23042eb8afc",
-      "rm75.py": "a52b7909366b26909a0ae697ebaa9b325bb0ae391d2293283610aae121d2b5e8",
+      "rm75.py": "c76e6e5f3fda09881d57a494ba799a64e1b1fa8cfb751b71eadf8dbe615e2795",
       "sac.py": "5ed6b11dea9833d11816b0c2785c6ba8786dc9325e89ff3a88536594020acfed",
-      "specs.py": "d80c8ea7f30e593adcb9db88600c071bfaa902da5940aee7e3dd17f33a826cf0"
+      "specs.py": "d80c8ea7f30e593adcb9db88600c071bfaa902da5940aee7e3dd17f33a826cf0",
+      "workspace_runtime.py": "6d6d5cc9b4634625fbd7930ae34daf62c33dc7cde63411f945b3e96496d106a6"
     }
   }
 }

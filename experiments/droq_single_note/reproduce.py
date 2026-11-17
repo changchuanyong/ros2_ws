@@ -12,8 +12,14 @@ from tempfile import TemporaryDirectory
 
 
 HERE = Path(__file__).resolve().parent
-CODE = HERE.parents[2]
+WORKSPACE = HERE.parents[1]
+ROBOPIANIST = WORKSPACE / "third_party" / "robopianist"
+MESH_ROOT = WORKSPACE / "src/ros2_rm_robot/rm_mujoco/meshes"
+MESH_PREFIX = "robopianist/models/hands/third_party/rm75_l20/meshes/"
 TASK = "robopianist/suite/tasks/piano_with_rm75_l20.py"
+WORKSPACE_ADAPTERS = {
+    "robopianist/__init__.py", "robopianist/models/hands/rm75_l20.py", TASK,
+}
 STEPS = 20_000
 HOLDOUT_SEED = 202
 PITCH = 72
@@ -32,8 +38,11 @@ def stage_sources(robopianist, training, destination=None):
     ):
         for relative, expected in lock[name]["files"].items():
             path = source / relative
-            if name == "robopianist" and relative == TASK:
-                path = HERE / "overlay" / Path(TASK).name
+            if name == "robopianist":
+                if relative in WORKSPACE_ADAPTERS:
+                    path = ROBOPIANIST / relative
+                elif relative.startswith(MESH_PREFIX) and not path.is_file():
+                    path = MESH_ROOT / relative.removeprefix(MESH_PREFIX)
             data = path.read_bytes()
             if path.suffix in {".py", ".xml", ".json"}:
                 data = data.replace(b"\r\n", b"\n")
@@ -114,16 +123,18 @@ def run_experiment(args):
     soundfont = args.soundfont or (
         args.robopianist / "robopianist/soundfonts/TimGM6mb.sf2"
     )
-    if not soundfont.is_file():
-        raise ValueError(f"SoundFont missing: {soundfont}. Pass --soundfont with a local .sf2 file")
+    if args.soundfont is not None and not soundfont.is_file():
+        raise ValueError(f"SoundFont missing: {soundfont}")
 
     with TemporaryDirectory(prefix="droq-single-note-") as temp:
         stage = Path(temp)
         stage_sources(args.robopianist, args.training, stage)
-        soundfont_target = stage / "robopianist/soundfonts/TimGM6mb.sf2"
-        soundfont_target.parent.mkdir()
-        soundfont_target.write_bytes(soundfont.read_bytes())
         env = os.environ.copy()
+        if soundfont.is_file():
+            soundfont_target = stage / "robopianist/soundfonts/TimGM6mb.sf2"
+            soundfont_target.parent.mkdir()
+            soundfont_target.write_bytes(soundfont.read_bytes())
+            env["ROBOPIANIST_SOUNDFONT"] = str(soundfont_target)
         env.update(PYTHONPATH=os.pathsep.join((str(stage), str(stage / "training"))),
                    JAX_PLATFORMS="cpu", OPENBLAS_NUM_THREADS="1", OMP_NUM_THREADS="1")
 
@@ -147,7 +158,10 @@ def run_experiment(args):
 
 def main():
     parser = argparse.ArgumentParser(description=__doc__)
-    parser.add_argument("--robopianist", type=Path, default=CODE / "robopianist")
+    parser.add_argument(
+        "--robopianist", type=Path, default=ROBOPIANIST,
+        help="Override the bundled runtime with compatible sources",
+    )
     parser.add_argument(
         "--training", type=Path, default=HERE.parent / "robopianist_rl",
         help="Override the training sources shipped in the workspace",

@@ -6,25 +6,23 @@ This workspace copy preserves the upstream [robopianist-rl](https://github.com/k
 
 ## Installation
 
-Note: Make sure you are using the same conda environment you created for RoboPianist (see [here](https://github.com/google-research/robopianist/blob/main/README.md#installation)).
-
-1. Install [JAX](https://github.com/google/jax#installation)
-2. Run `pip install -r requirements.txt`
+The scripts use the [bundled RoboPianist runtime](../../third_party/robopianist/README.md). Set up the Python and MuJoCo dependencies from the [single-note baseline guide](../droq_single_note/README.md), then install this directory's `requirements.txt` for the generic `train.py` runner.
 
 ## Usage
 
-From the workspace root, enter this training directory to run the example that uses the paper's task parameters for Twinkle Twinkle Little Star.
+From the workspace root, run the RM75/L20 example on the built-in Twinkle Twinkle Little Star score.
 
 ```bash
-cd experiments/robopianist_rl
-bash run.sh
+bash experiments/robopianist_rl/run.sh
 ```
 
 To look at all the possible command-line flags, run:
 
 ```bash
-python train.py --help
+python experiments/robopianist_rl/train.py --help
 ```
+
+Evaluation logs MIDI metrics by default. To record video with synthesized audio, set `ROBOPIANIST_SOUNDFONT` and pass `--record-dir`.
 
 ## Citation
 
