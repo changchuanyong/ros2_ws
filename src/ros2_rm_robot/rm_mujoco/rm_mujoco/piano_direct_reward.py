@@ -13,6 +13,8 @@ from .piano_direct_eval import TIMING_TOLERANCE_SEC, TIME_EPSILON
 
 KEY_PRESS_FRACTION = 0.55
 FINGER_SCALE_M = 0.02
+FINGER_APPROACH_SEC = 0.12
+KEY_PROGRESS_CREDIT = 0.25
 SAFETY_KEY_EXCESS_M = 0.01
 SAFETY_ARM_ERROR_RAD = 0.05
 
@@ -170,14 +172,24 @@ class DirectReward:
         missing_fraction = missing_count / target_count if target_count else 0.0
         wrong_ratio = wrong_count / max(target_count, wrong_count, 1.0)
         key = correct_fraction - missing_fraction - 2.0 * wrong_ratio
+        pending = (target == 1) & ~sounding
+        partial = np.clip(key_normalized[pending] / KEY_PRESS_FRACTION, 0.0, 1.0)
+        key += KEY_PROGRESS_CREDIT * float(partial.sum()) / max(target_count, 1.0)
 
-        finger = 0.0
         distances = finger_distances or {}
-        active_notes = np.flatnonzero(sounding & (target == 1))
-        if len(active_notes):
-            values = [math.exp(-float(distances.get(int(note + 21), 0.2))
-                               / FINGER_SCALE_M) for note in active_notes]
-            finger = float(np.mean(values))
+        proximity_weights = {int(index + 21): 1.0 for index in
+                             np.flatnonzero(sounding & (target == 1))}
+        for event in self.events:
+            until_on = event["on"] - time_sec
+            if (not event["pressed"] and not event["missing_penalized"]
+                    and -TIMING_TOLERANCE_SEC <= until_on <= FINGER_APPROACH_SEC
+                    and time_sec < event["off"]):
+                note = event["note"]
+                weight = 1.0 - max(0.0, until_on) / FINGER_APPROACH_SEC
+                proximity_weights[note] = max(proximity_weights.get(note, 0.0), weight)
+        values = [weight * math.exp(-max(0.0, float(distances[note])) / FINGER_SCALE_M)
+                  for note, weight in proximity_weights.items() if note in distances]
+        finger = float(np.mean(values)) if values else 0.0
 
         action_penalty = float(np.mean(action ** 2))
         action_penalty += float(np.mean((action - previous_action) ** 2))

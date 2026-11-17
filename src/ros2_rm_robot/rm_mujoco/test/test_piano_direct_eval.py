@@ -9,13 +9,26 @@ import pytest
 PACKAGE = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(PACKAGE))
 
-from rm_mujoco.piano_direct_eval import evaluate_edges, single_note_success  # noqa: E402
+from rm_mujoco.piano_direct_eval import evaluate_edges, evaluate_key_frames, single_note_success  # noqa: E402
 
 
 def _task():
     return SimpleNamespace(
         origin_sec=0.0,
+        duration_sec=0.6,
         events=[SimpleNamespace(note=53, start_sec=0.2, end_sec=0.5)])
+
+
+def test_frame_f1_scores_active_frames_and_keeps_unplayed_tail():
+    task = _task()
+    exact = evaluate_key_frames(task, [(0.2, "on", 53), (0.5, "off", 53)], frame_dt=.1)
+    assert exact["frames"] == 6 and exact["target_active_frames"] == 3
+    assert exact["f1"] == exact["target_active_f1"] == 1.0
+    idle = evaluate_key_frames(task, [], frame_dt=.1)
+    assert idle["f1"] == .5 and idle["target_active_f1"] == 0.0
+    stopped = evaluate_key_frames(task, [(0.2, "on", 53)], frame_dt=.1, observed_until=.3)
+    assert stopped["f1"] == pytest.approx(5 / 6)
+    assert stopped["target_active_f1"] == pytest.approx(2 / 3)
 
 
 def test_correct_edges_pass():

@@ -1,5 +1,6 @@
 """MuJoCo smoke tests for the reference-free `PianoDirectEnv`."""
 
+from dataclasses import replace
 from pathlib import Path
 import sys
 
@@ -13,12 +14,13 @@ sys.path.insert(0, str(PACKAGE))
 sys.path.insert(0, str(PACKAGE / "scripts"))
 
 from rm_mujoco.piano_direct import OBSERVATION_SIZE, PianoDirectEnv  # noqa: E402
+from rm_mujoco.piano_relative import RelativeStrike, strike_commands  # noqa: E402
 from rm_mujoco.pianovam_corpus import PianoVamCorpus, RecordingTasks  # noqa: E402
 from rm_mujoco.pianovam_tasks import build_task_set, load_task_set, write_task_set  # noqa: E402
 from train_piano_direct import evaluate, summarize_by_piece  # noqa: E402
 
 
-def _task_path(tmp_path, notes=(55,)):
+def _task_path(tmp_path, notes=(55,), *, lead_in_sec=0.0):
     events = []
     for event_id, note in enumerate(notes, start=1):
         events.append({
@@ -31,7 +33,8 @@ def _task_path(tmp_path, notes=(55,)):
             "finger": "index" if note < 60 else "middle",
         })
     task_set = build_task_set(
-        events, source="fixture.tsv", split="train", source_sha256="a" * 64)
+        events, source="fixture.tsv", split="train", source_sha256="a" * 64,
+        lead_in_sec=lead_in_sec)
     path = tmp_path / "tasks.json"
     write_task_set(path, task_set)
     return path
@@ -65,6 +68,40 @@ def test_reset_observation_and_fixed_arms(env):
     assert not hasattr(env, "arm_tracks")
     assert not hasattr(env, "hand_tracks")
     assert not hasattr(env, "nominal_qpos")
+
+
+def test_custom_lookahead_and_lateral_goal_observations(tmp_path):
+    env = PianoDirectEnv.from_config(
+        _task_path(tmp_path, notes=(75,), lead_in_sec=.2), PACKAGE, active_hands=("right",),
+        lookahead_sec=(0., .05, .10, .20, .40, 1.8), wrist_speed_m_sec=.0145)
+    try:
+        observation, _ = env.reset(seed=0)
+        assert observation.shape == env.observation_space.shape == (885,)
+        assert observation[-10:-5].tolist() == [0.0] * 5
+        present, relative, until, shift, eta = observation[-5:]
+        assert present == 1 and until == pytest.approx(.2)
+        assert relative == pytest.approx(env.relative_key("right", 75, .5).lateral_m)
+        assert shift > 0 and eta == pytest.approx(abs(shift) / .0145)
+        next_observation, *_ = env.step(np.zeros(20, dtype=np.float32))
+        assert env.observation_space.contains(next_observation)
+        assert next_observation[-3] == pytest.approx(.18)
+    finally:
+        env.close()
+
+
+def test_relative_strike_filters_geometry_key_type_and_disabled_fingers(env):
+    env.reset(seed=0)
+    target = env.relative_key("left", 53, .3)
+    assert not target.black and not env.relative_key("right", 73, .3).candidate_fingers
+    profile = RelativeStrike("left", "index", target.lateral_m, False, .3, ((2, -.5, .2),))
+    near = replace(target, lateral_m=target.lateral_m + .001)
+    (ticks, action), = strike_commands(near, [profile])
+    assert ticks == 2
+    assert np.flatnonzero(action).tolist() == [1, 6]
+    for mismatch in (replace(target, black=True), replace(target, lateral_m=target.lateral_m + .02),
+                     replace(target, channels=frozenset({1}))):
+        with pytest.raises(ValueError, match="no calibrated strike"):
+            strike_commands(mismatch, [profile])
 
 
 def test_action_changes_hand_and_masks_other_side(env):
@@ -206,3 +243,4 @@ def test_one_policy_reports_each_piece_and_keeps_all_score_events(tmp_path):
     assert second["coverage"]["active_hand_events"] == 1
     assert second["coverage"]["nominal_band_events"] == 0
     assert first["timed_note_f1"] == second["timed_note_f1"] == 0
+    assert first["key_frame_target_active_f1"] == second["key_frame_target_active_f1"] == 0

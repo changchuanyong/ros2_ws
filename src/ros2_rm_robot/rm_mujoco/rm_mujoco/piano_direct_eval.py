@@ -23,6 +23,58 @@ class SingleNoteResult:
     reason: str
 
 
+def evaluate_key_frames(task, edges, *, frame_dt, observed_until=None):
+    """Average binary key-state scores on the full score timeline at control steps."""
+    duration = float(task.duration_sec)
+    if not math.isfinite(frame_dt) or not math.isfinite(duration) or frame_dt <= 0 or duration <= 0:
+        raise ValueError("frame step and task duration must be finite and positive")
+    if observed_until is None:
+        observed_until = duration
+    if not math.isfinite(observed_until) or observed_until < 0:
+        raise ValueError("observed_until must be finite and non-negative")
+    targets = sorted(
+        (time - task.origin_sec, event.note, delta)
+        for event in task.events
+        for time, delta in ((event.start_sec, 1), (event.end_sec, -1)))
+    observed = sorted(((time, note, edge) for time, edge, note in edges
+                       if math.isfinite(time) and edge in ("on", "off")), key=lambda row: row[0])
+    target_counts = defaultdict(int)
+    active = set()
+    ti = oi = active_frames = 0
+    precision_sum = recall_sum = f1_sum = active_f1_sum = 0.0
+    frames = max(1, math.ceil((duration - TIME_EPSILON) / frame_dt))
+    for frame in range(1, frames + 1):
+        time = min(duration, frame * frame_dt)
+        while ti < len(targets) and targets[ti][0] <= time + TIME_EPSILON:
+            _, note, delta = targets[ti]
+            target_counts[note] += delta
+            if not target_counts[note]:
+                del target_counts[note]
+            ti += 1
+        while oi < len(observed) and observed[oi][0] <= time + TIME_EPSILON:
+            _, note, edge = observed[oi]
+            if edge == "on":
+                active.add(note)
+            else:
+                active.discard(note)
+            oi += 1
+        played = active if time <= observed_until + TIME_EPSILON else set()
+        true_positives = len(played.intersection(target_counts))
+        expected = len(target_counts)
+        predicted = len(played)
+        precision_sum += true_positives / predicted if predicted else 1.0
+        recall_sum += true_positives / expected if expected else 1.0
+        f1 = 2.0 * true_positives / (expected + predicted) if expected + predicted else 1.0
+        f1_sum += f1
+        if expected:
+            active_frames += 1
+            active_f1_sum += f1
+    return {"frames": frames, "target_active_frames": active_frames,
+            "precision": precision_sum / frames, "recall": recall_sum / frames,
+            "f1": f1_sum / frames,
+            "target_active_f1": active_f1_sum / active_frames if active_frames else None}
+
+
 def evaluate_edges(task, edges, *, timestep, tolerance_sec=TIMING_TOLERANCE_SEC,
                    key_violations=(), other_contacts=(), terminated=False,
                    onset_contacts=None):

@@ -22,7 +22,8 @@ from .performance_runtime import KeyTravelMonitor
 from .pianovam_corpus import PianoVamCorpus
 from .pianovam_tasks import HAND_ORDER, load_task_set
 from .piano_direct_eval import evaluate_edges
-from .piano_direct_reward import DirectReward
+from .piano_direct_reward import DirectReward, FINGER_APPROACH_SEC
+from .piano_relative import RelativeKeyTarget
 from .piano_rl import (
     ACTION_CHANNELS,
     LOOKAHEAD_SEC,
@@ -30,8 +31,11 @@ from .piano_rl import (
     finger_clock,
     target_keys,
 )
+from .scene import WHITE_CLASSES
 
 OBSERVATION_SIZE = 777
+LOOKAHEAD_FEATURES = len(KEY_NOTES) + len(HAND_ORDER) * len(FINGERS)
+WRIST_GOAL_FEATURES = 5 * len(HAND_ORDER)
 DEFAULT_SCENE = "config/piano_scene_static5.yaml"
 DEFAULT_HOME = "config/static_pose_reference.yaml"
 DEFAULT_POSE = "config/right_hand_piano_sim.yaml"
@@ -54,7 +58,7 @@ class PianoDirectEnv(gym.Env):
                  action_scale=8.0, ready_curl=None,
                  lookahead_sec=LOOKAHEAD_SEC, reward_weights=None,
                  active_channels=None, observation_lead_sec=0.0,
-                 task_indices=None, initial_jitter=0.0):
+                 task_indices=None, initial_jitter=0.0, wrist_speed_m_sec=None):
         super().__init__()
         if not np.isfinite(control_dt) or control_dt <= 0:
             raise ValueError("control_dt must be finite and positive")
@@ -89,13 +93,18 @@ class PianoDirectEnv(gym.Env):
         self.control_dt = float(control_dt)
         self.action_scale = float(action_scale)
         self.lookahead_sec = tuple(float(value) for value in lookahead_sec)
-        if not self.lookahead_sec or self.lookahead_sec[0] != 0.0:
-            raise ValueError("lookahead_sec must start at 0")
+        if (not self.lookahead_sec or self.lookahead_sec[0] != 0.0
+                or not np.isfinite(self.lookahead_sec).all()):
+            raise ValueError("lookahead_sec must be finite and start at 0")
         if any(b <= a for a, b in zip(self.lookahead_sec, self.lookahead_sec[1:])):
             raise ValueError("lookahead_sec must increase")
         if not np.isfinite(observation_lead_sec) or observation_lead_sec < 0:
             raise ValueError("observation_lead_sec must be finite and non-negative")
         self.observation_lead_sec = float(observation_lead_sec)
+        if wrist_speed_m_sec is not None and (
+                not np.isfinite(wrist_speed_m_sec) or wrist_speed_m_sec <= 0):
+            raise ValueError("wrist_speed_m_sec must be finite and positive")
+        self.wrist_speed_m_sec = wrist_speed_m_sec
         scene = _resolve(self.package, scene_config or DEFAULT_SCENE)
         home_path = _resolve(self.package, home_pose or DEFAULT_HOME)
         pose_path = _resolve(self.package, pose_file or DEFAULT_POSE)
@@ -147,10 +156,13 @@ class PianoDirectEnv(gym.Env):
             raise ValueError("active_channels must not contain duplicates")
         self.channel_mask = np.zeros(20, dtype=np.float32)
         self.channel_mask[list(active_channels)] = 1.0
+        self.enabled_channels = frozenset(np.flatnonzero(self.action_mask * self.channel_mask).tolist())
         self.hand_mask = np.array(
             [side in self.active_hands for side in HAND_ORDER], dtype=np.float32)
-        self.observation_space = gym.spaces.Box(
-            -np.inf, np.inf, (OBSERVATION_SIZE,), np.float32)
+        size = OBSERVATION_SIZE + LOOKAHEAD_FEATURES * (len(self.lookahead_sec) - len(LOOKAHEAD_SEC))
+        if self.wrist_speed_m_sec is not None:
+            size += WRIST_GOAL_FEATURES
+        self.observation_space = gym.spaces.Box(-np.inf, np.inf, (size,), np.float32)
         self.neutral20 = {}
         self.task_events = []
         self.key_events = None
@@ -185,6 +197,7 @@ class PianoDirectEnv(gym.Env):
             "reward_weights": document.get("reward"),
             "active_channels": document.get("active_channels"),
             "observation_lead_sec": document.get("observation_lead_sec", 0.0),
+            "wrist_speed_m_sec": document.get("wrist_speed_m_sec"),
         }
         values.update(overrides)
         return cls(task_path, package, **values)
@@ -254,6 +267,13 @@ class PianoDirectEnv(gym.Env):
         self.last_command = {
             side: self.neutral20[side].copy() for side in HAND_ORDER}
         m.mj_forward(self.model, self.data)
+        if self.wrist_speed_m_sec is not None:
+            self.reference_key_bands = {}
+            for side, notes in self.reachable_notes.items():
+                offsets = [self._lateral_key_offset(side, note) for note in notes if note in KEY_NOTES]
+                if not offsets:
+                    raise ValueError("wrist goal observation requires a piano reference note")
+                self.reference_key_bands[side] = (min(offsets), max(offsets))
         contacts, other = self.hand_model.classify(self.data)
         if other:
             self.close()
@@ -293,13 +313,46 @@ class PianoDirectEnv(gym.Env):
         parts.append(self.hand_mask)
         remaining = max(0.0, self.end_time - time_sec) / max(self.end_time, 1e-9)
         parts.append(np.array([remaining], dtype=np.float32))
+        if self.wrist_speed_m_sec is not None:
+            parts.append(self._wrist_goals(float(self.data.time)))
         observation = np.concatenate([np.asarray(part, dtype=np.float32).ravel()
                                       for part in parts])
-        if observation.shape != (OBSERVATION_SIZE,):
-            raise RuntimeError(f"observation size {observation.shape} != {OBSERVATION_SIZE}")
+        if observation.shape != self.observation_space.shape:
+            raise RuntimeError(f"observation size {observation.shape} != {self.observation_space.shape}")
         if not np.isfinite(observation).all():
             raise RuntimeError("observation contains non-finite values")
         return observation
+
+    def _lateral_key_offset(self, side, note):
+        key = self.data.site_xpos[self.key_sites[note]]
+        wrist = self.data.xpos[self.hand_model.wrist_id[side]]
+        axis = self.data.site_xmat[self.piano_site].reshape(3, 3)[:, 0]
+        return float((key - wrist) @ axis)
+
+    def relative_key(self, side, note, duration_sec):
+        """Describe a key for calibrated strikes without making contact or moving the arm."""
+        if side not in HAND_ORDER or note not in KEY_NOTES:
+            raise ValueError("relative key requires a valid hand and piano note")
+        if not np.isfinite(duration_sec) or duration_sec <= 0:
+            raise ValueError("relative key duration must be finite and positive")
+        return RelativeKeyTarget(side, self._lateral_key_offset(side, note),
+                                 note % 12 not in WHITE_CLASSES, float(duration_sec),
+                                 self.enabled_channels)
+
+    def _wrist_goals(self, now):
+        goals = []
+        for side in HAND_ORDER:
+            upcoming = min((e for e in self.task_events if e["side"] == side and e["on"] >= now - 1e-9),
+                           key=lambda e: e["on"], default=None)
+            if upcoming is None or side not in self.active_hands:
+                goals.extend((0.,) * 5)
+                continue
+            relative = self._lateral_key_offset(side, upcoming["note"])
+            low, high = self.reference_key_bands[side]
+            shift = relative - min(high, max(low, relative))
+            goals.extend((1., relative, max(0., upcoming["on"] - now),
+                          shift, abs(shift) / self.wrist_speed_m_sec))
+        return goals
 
     def _command(self, action, *, scale=None):
         scale = self.action_scale if scale is None else scale
@@ -314,21 +367,18 @@ class PianoDirectEnv(gym.Env):
 
     def _finger_distances(self):
         time_sec = float(self.data.time)
-        target = target_keys(self.task_events, time_sec)
+        targets = {(event["side"], event["note"]) for event in self.task_events
+                   if event["on"] - FINGER_APPROACH_SEC <= time_sec < event["off"]}
         result = {}
-        for index in np.flatnonzero(target):
-            note = int(index + 21)
-            side = next((event["side"] for event in self.task_events
-                         if event["note"] == note and event["on"] <= time_sec < event["off"]),
-                        "right")
+        for side, note in targets:
             site = self.data.site_xpos[self.key_sites[note]]
-            best = float("inf")
-            for finger in FINGERS:
+            channels = self.relative_key(side, note, self.control_dt).candidate_fingers
+            for finger in channels:
                 gid, vertices = self.fingertips[(side, finger)]
                 rotation = self.data.geom_xmat[gid].reshape(3, 3)
                 points = self.data.geom_xpos[gid] + vertices @ rotation.T
-                best = min(best, float(np.min(np.linalg.norm(points - site, axis=1))))
-            result[note] = best
+                distance = float(np.min(np.linalg.norm(points - site, axis=1)))
+                result[note] = min(result.get(note, float("inf")), distance)
         return result
 
     def _energy(self):

@@ -106,7 +106,7 @@ def test_holding_after_release_is_penalized():
     assert total < 0
 
 
-def test_finger_distance_only_helps_while_key_sounds():
+def test_finger_distance_shaping_before_and_during_the_note():
     near = DirectReward()
     near.reset(_events())
     near_total, near_components, _ = near.step(
@@ -120,11 +120,29 @@ def test_finger_distance_only_helps_while_key_sounds():
     assert near_components["finger"] > far_components["finger"]
     assert near_total > far_total
 
-    idle = DirectReward()
-    idle.reset(_events())
-    _, idle_components, _ = idle.step(
-        time_sec=0.2, key_normalized=_keys(), finger_distances={60: 0.0})
-    assert idle_components["finger"] == 0.0
+    approach = DirectReward()
+    approach.reset(_events())
+    _, early, _ = approach.step(
+        time_sec=0.05, key_normalized=_keys(), finger_distances={60: 0.0})
+    _, distant, _ = approach.step(
+        time_sec=0.15, key_normalized=_keys(), finger_distances={60: 0.2})
+    _, close, details = approach.step(
+        time_sec=0.15, key_normalized=_keys(), finger_distances={60: 0.001})
+    assert early["finger"] == 0.0
+    assert 0.0 < distant["finger"] < close["finger"] <= approach.weights.finger
+    assert details["press_count"] == 0
+
+
+def test_partial_target_stroke_is_credited_but_does_not_count_as_a_press():
+    reward = DirectReward()
+    reward.reset(_events())
+    _, idle, _ = reward.step(time_sec=0.21, key_normalized=_keys(), edges=[])
+    _, partial, details = reward.step(
+        time_sec=0.21, key_normalized=_keys(note60=0.4, note62=0.5), edges=[])
+    _, wrong, _ = reward.step(time_sec=0.21, key_normalized=_keys(note62=0.5), edges=[])
+    assert idle["key"] == wrong["key"] < partial["key"] < 0.0
+    assert details["press_count"] == 0
+    assert not reward.strict_timing()
 
 
 def test_action_energy_and_safety_penalize():

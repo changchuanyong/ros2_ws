@@ -22,29 +22,32 @@ def _package_root():
 PACKAGE = _package_root()
 sys.path.insert(0, str(PACKAGE))
 
-from rm_mujoco.piano_direct import PianoDirectEnv, OBSERVATION_SIZE  # noqa: E402
-from rm_mujoco.piano_direct_eval import evaluate_edges, single_note_success  # noqa: E402
+from rm_mujoco.piano_direct import PianoDirectEnv  # noqa: E402
+from rm_mujoco.piano_direct_eval import evaluate_edges, evaluate_key_frames, single_note_success  # noqa: E402
 from rm_mujoco.pianovam_corpus import load_corpus_manifest, sha256  # noqa: E402
 from rm_mujoco.pianovam_tasks import HAND_ORDER, load_task_set  # noqa: E402
 
 
 def make_env(task_path, package, *, task_index, hand, action_scale, channels,
-             reward_weights, observation_lead, initial_jitter=0.0, task_indices=None):
+             reward_weights, observation_lead, initial_jitter=0.0, task_indices=None,
+             observation_options=None):
     return PianoDirectEnv.from_config(
         task_path, package, task_index=task_index,
         active_hands=HAND_ORDER if hand == "both" else (hand,), action_scale=action_scale,
         active_channels=channels, reward_weights=reward_weights,
         observation_lead_sec=observation_lead, initial_jitter=initial_jitter,
-        task_indices=task_indices)
+        task_indices=task_indices, **(observation_options or {}))
 
 
 def evaluate(model, task_path, package, *, task_index, hand, action_scale,
              channels, reward_weights, observation_lead, episodes, seed_start,
-             random_policy=False, initial_jitter=0.0, all_tasks=False):
+             random_policy=False, initial_jitter=0.0, all_tasks=False,
+             observation_options=None):
     env = make_env(task_path, package, task_index=task_index, hand=hand,
                    action_scale=action_scale, channels=channels,
                    reward_weights=reward_weights,
-                   observation_lead=observation_lead, initial_jitter=initial_jitter)
+                   observation_lead=observation_lead, initial_jitter=initial_jitter,
+                   observation_options=observation_options)
     rows = []
     enabled_hands = {side for i, side in enumerate(HAND_ORDER)
                      if np.any((env.action_mask * env.channel_mask)[10 * i:10 * (i + 1)])}
@@ -91,6 +94,8 @@ def evaluate(model, task_path, package, *, task_index, hand, action_scale,
                 "terminated": bool(terminated),
                 "truncated": bool(truncated),
                 "edges": edges,
+                "frame_metrics": evaluate_key_frames(env.task, edges, frame_dt=env.control_dt,
+                                                     observed_until=info["time_sec"]),
                 "coverage": {
                     "score_events": len(env.task.events),
                     "active_hand_events": sum(event.hand in enabled_hands
@@ -151,6 +156,11 @@ def summarize(rows):
         result[f"mean_{name}_error"] = float(np.mean(errors)) if errors else None
         result[f"p95_absolute_{name}_error"] = (
             float(np.percentile(np.abs(errors), 95)) if errors else None)
+    frames = [row["frame_metrics"] for row in rows if "frame_metrics" in row]
+    for name in ("precision", "recall", "f1", "target_active_f1"):
+        values = [frame[name] for frame in frames if frame[name] is not None]
+        if frames:
+            result[f"key_frame_{name}"] = float(np.mean(values)) if values else None
     return result
 
 
@@ -188,6 +198,10 @@ def main(argv=None):
                         help="training safety penalty; evaluation stays strict")
     parser.add_argument("--observation-lead", type=float, default=0.0,
                         help="fixed score-clock phase advance for hand latency")
+    parser.add_argument("--lookahead-sec", type=float, nargs="+",
+                        help="score lookahead offsets in seconds, starting at zero")
+    parser.add_argument("--wrist-speed-m-sec", type=float,
+                        help="enable wrist goal observations using this estimated lateral speed")
     parser.add_argument("--evaluate-only", action="store_true")
     parser.add_argument("--final-test", action="store_true",
                         help="evaluate a frozen checkpoint on the manifest test phase")
@@ -223,6 +237,16 @@ def main(argv=None):
         parser.error("--safety-weight must be finite and non-negative")
     if not math.isfinite(args.observation_lead) or args.observation_lead < 0:
         parser.error("--observation-lead must be finite and non-negative")
+    if args.lookahead_sec is not None and (
+            args.lookahead_sec[0] != 0.0 or not all(map(math.isfinite, args.lookahead_sec))
+            or any(b <= a for a, b in zip(args.lookahead_sec, args.lookahead_sec[1:]))):
+        parser.error("--lookahead-sec must be finite, start at zero and increase")
+    if args.wrist_speed_m_sec is not None and (
+            not math.isfinite(args.wrist_speed_m_sec) or args.wrist_speed_m_sec <= 0):
+        parser.error("--wrist-speed-m-sec must be finite and positive")
+    observation_options = {name: value for name, value in (
+        ("lookahead_sec", args.lookahead_sec), ("wrist_speed_m_sec", args.wrist_speed_m_sec))
+        if value is not None}
     if args.evaluate_only and args.resume is None:
         parser.error("--evaluate-only requires --resume")
     if args.final_test and (not args.evaluate_only or not args.manifest):
@@ -291,18 +315,26 @@ def main(argv=None):
             hand=args.hand, action_scale=args.action_scale,
             channels=channels, reward_weights=reward_weights,
             observation_lead=args.observation_lead, initial_jitter=args.initial_jitter,
-            task_indices=task_indices)
+            task_indices=task_indices, observation_options=observation_options)
 
     vector = None
-    if not args.evaluate_only:
-        check = training_env()
-        try:
+    check = training_env()
+    try:
+        observation_space = check.observation_space
+        lookahead_sec = check.lookahead_sec
+        wrist_speed_m_sec = check.wrist_speed_m_sec
+        if not args.evaluate_only:
             check_env(check, warn=True, skip_render_check=True)
-        finally:
-            check.close()
+    finally:
+        check.close()
+    if not args.evaluate_only:
         vector = VecMonitor(DummyVecEnv([training_env]))
     if args.resume:
-        model = PPO.load(args.resume, env=vector, device="cpu", seed=args.seed)
+        model = PPO.load(args.resume, device="cpu", seed=args.seed)
+        if model.observation_space != observation_space:
+            parser.error("checkpoint observation space differs from the requested lookahead/wrist configuration")
+        if vector is not None:
+            model.set_env(vector)
     else:
         model = PPO(
             "MlpPolicy", vector, n_steps=args.n_steps, batch_size=args.batch_size,
@@ -322,7 +354,8 @@ def main(argv=None):
         "action_scale": args.action_scale, "active_channels": list(channels),
         "reward_weights": reward_weights,
         "observation_lead_sec": args.observation_lead,
-        "observation_size": OBSERVATION_SIZE, "action_size": 20,
+        "lookahead_sec": lookahead_sec, "wrist_speed_m_sec": wrist_speed_m_sec,
+        "observation_size": observation_space.shape[0], "action_size": 20,
         "ppo": {"n_steps": model.n_steps, "batch_size": model.batch_size,
                 "n_epochs": model.n_epochs, "learning_rate": model.lr_schedule(1.0),
                 "ent_coef": model.ent_coef, "gamma": model.gamma,
@@ -352,7 +385,8 @@ def main(argv=None):
                        observation_lead=args.observation_lead,
                        episodes=eval_episodes,
                        seed_start=args.eval_seed_start, initial_jitter=args.initial_jitter,
-                       all_tasks=bool(args.manifest or args.eval_tasks))
+                       all_tasks=bool(args.manifest or args.eval_tasks),
+                       observation_options=observation_options)
     baseline = evaluate(None, eval_tasks, args.package,
                         task_index=args.task_index, hand=args.hand,
                         action_scale=args.action_scale, channels=channels,
@@ -361,13 +395,16 @@ def main(argv=None):
                         episodes=eval_episodes,
                         seed_start=args.eval_seed_start,
                         random_policy=True, initial_jitter=args.initial_jitter,
-                        all_tasks=bool(args.manifest or args.eval_tasks))
+                        all_tasks=bool(args.manifest or args.eval_tasks),
+                        observation_options=observation_options)
     summary = summarize(trained)
     summary["random_success_rate"] = sum(row["success"] for row in baseline) / len(baseline)
     by_piece = summarize_by_piece(trained)
     if by_piece:
         summary["piece_macro_timed_note_f1"] = float(np.mean(
             [piece["timed_note_f1"] for piece in by_piece]))
+        summary["piece_macro_key_frame_f1"] = float(np.mean(
+            [piece["key_frame_f1"] for piece in by_piece]))
     (args.output / "evaluation.json").write_text(
         json.dumps({"summary": summary, "trained": trained,
                     "by_piece": by_piece, "random": baseline,
